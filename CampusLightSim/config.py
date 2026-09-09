@@ -11,6 +11,10 @@ from pathlib import Path
 
 PROJECT_NAME = "CampusLightSim"
 PROJECT_TITLE = "北邮本部主楼智能照明 LoRa 云运维仿真平台"
+APP_TITLE = PROJECT_NAME
+APP_ICON = "💡"
+APP_SUBTITLE = "校园 LoRa 智慧照明仿真系统"
+DEFAULT_EXPERIMENT_MODE = "标准仿真"
 SCHOOL_NAME = "北京邮电大学"
 CAMPUS_NAME = "本部校区"
 RESEARCH_AREA = "本部主楼及主楼附近照明设施"
@@ -194,17 +198,26 @@ NBIOT = {
 
 TELEMETRY = {
     "upload_interval_minutes": SIMULATION_STEP_MINUTES,
-    "offline_after_failed_uploads": 5,
+    "offline_after_failed_uploads": 3,
     "fields": ["timestamp", "device_id", "lux", "occupancy", "brightness", "power", "rssi", "snr", "packet_success"],
 }
 
 FAULTS = {
     "node_offline": {"enabled": True, "severity": "CRITICAL"},
-    "low_rssi": {"enabled": True, "threshold_dbm": -110, "severity": "WARNING"},
+    "low_rssi": {"enabled": True, "threshold_dbm": -115, "severity": "WARNING"},
     "very_low_rssi": {"enabled": True, "threshold_dbm": -120, "severity": "CRITICAL"},
-    "low_pdr": {"enabled": True, "threshold": 0.80, "severity": "WARNING"},
-    "sensor_abnormal": {"enabled": True, "lux_min": 0, "lux_max": 10000, "severity": "WARNING"},
+    "low_pdr": {"enabled": True, "threshold": 0.90, "severity": "WARNING"},
+    "very_low_pdr": {"enabled": True, "threshold": 0.80, "severity": "CRITICAL"},
+    "sensor_abnormal": {"enabled": True, "lux_min": 0, "lux_max": 100000, "severity": "CRITICAL"},
+    "high_packet_loss": {"enabled": True, "severity": "WARNING"},
     "gateway_offline": {"enabled": True, "severity": "CRITICAL"},
+}
+
+FAULT_SIMULATION = {
+    "extra_loss_db": 25.0,
+    "packet_loss_probability": 0.40,
+    "invalid_lux": -1.0,
+    "pdr_window_size": 20,
 }
 
 BASE_DIR = Path(__file__).resolve().parent

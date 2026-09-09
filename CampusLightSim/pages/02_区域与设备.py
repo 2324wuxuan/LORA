@@ -94,8 +94,6 @@ def _lux_chart_svg(series: dict[str, list[float]]) -> str:
     return "".join(parts)
 
 
-st.set_page_config(page_title="区域与设备 | CampusLightSim", page_icon="🏫", layout="wide")
-
 st.title("🏫 区域与设备规划")
 st.caption(f"研究范围：{SCHOOL_NAME}{CAMPUS_NAME} · {RESEARCH_AREA}")
 st.info(

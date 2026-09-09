@@ -8,7 +8,7 @@ from analysis.energy import (
     calculate_saving_rate,
     calculate_traditional_daily_energy,
 )
-from config import validate_config
+from config import BASE_DIR, CAMPUS_MAP, CAMPUS_PLANNING_AREAS, ZONES, validate_config
 from simulator.environment import (
     generate_environment_series,
     get_environment,
@@ -22,6 +22,21 @@ class EnvironmentSimulationTests(unittest.TestCase):
     def test_config_is_valid(self):
         valid, errors = validate_config()
         self.assertTrue(valid, errors)
+
+    def test_campus_wide_planning_and_map_are_configured(self):
+        self.assertGreater(len(CAMPUS_PLANNING_AREAS), len(ZONES))
+        self.assertTrue((BASE_DIR / CAMPUS_MAP["asset_path"]).is_file())
+        planned_landmarks = {
+            landmark
+            for area in CAMPUS_PLANNING_AREAS.values()
+            for landmark in area["landmarks"]
+        }
+        for landmark in ("主楼", "图书馆", "体育场", "教一楼", "学生公寓群"):
+            self.assertIn(landmark, planned_landmarks)
+        self.assertEqual(
+            set(CAMPUS_PLANNING_AREAS["PA01"]["linked_zone_ids"]),
+            set(ZONES),
+        )
 
     def test_environment_contract_and_repeatability(self):
         timestamp = datetime(2026, 9, 9, 10, 0)

@@ -6,7 +6,10 @@ from html import escape
 import streamlit as st
 
 from config import (
+    BASE_DIR,
     CAMPUS_NAME,
+    CAMPUS_MAP,
+    CAMPUS_PLANNING_AREAS,
     DEFAULT_GATEWAY_ID,
     DEVICES,
     GATEWAYS,
@@ -97,10 +100,63 @@ def _lux_chart_svg(series: dict[str, list[float]]) -> str:
 st.title("🏫 区域与设备规划")
 st.caption(f"研究范围：{SCHOOL_NAME}{CAMPUS_NAME} · {RESEARCH_AREA}")
 st.info(
-    "本页把校园现场需求转换为统一的软件参数：三区、三节点和一个 LoRaWAN "
-    "虚拟网关。距离、功率和环境规律均从 config.py 读取。"
+    "规划已由主楼试点扩展到本部校区教学、科研、生活、体育和道路区域。"
+    "首期三区三节点继续用于可执行仿真，其余片区先作为待勘测部署方案，"
+    "避免把未经测量的 LoRa 距离直接写入运行模型。"
 )
 
+
+st.subheader("校园总体规划地图")
+planned_nodes = sum(area["recommended_nodes"] for area in CAMPUS_PLANNING_AREAS.values())
+plan_col, pilot_col, node_total_col, phase_col = st.columns(4)
+plan_col.metric("校园规划片区", len(CAMPUS_PLANNING_AREAS))
+pilot_col.metric("首期仿真区域", len(ZONES))
+node_total_col.metric("建议照明节点", planned_nodes)
+phase_col.metric("建设阶段", "三期")
+
+map_path = BASE_DIR / CAMPUS_MAP["asset_path"]
+if map_path.exists():
+    st.image(
+        str(map_path),
+        caption=CAMPUS_MAP["caption"],
+    )
+else:
+    st.warning(f"未找到校园地图资源：{map_path}")
+
+planning_rows = []
+for area_id, area in CAMPUS_PLANNING_AREAS.items():
+    planning_rows.append(
+        {
+            "片区": f"{area_id} {area['name']}",
+            "地图地标": "、".join(area["landmarks"]),
+            "阶段": area["phase"],
+            "优先级": area["priority"],
+            "状态": area["status"],
+            "建议节点": area["recommended_nodes"],
+        }
+    )
+st.markdown(_markdown_table(planning_rows))
+
+selected_area_id = st.selectbox(
+    "查看片区规划详情",
+    options=list(CAMPUS_PLANNING_AREAS),
+    format_func=lambda item: f"{item} · {CAMPUS_PLANNING_AREAS[item]['name']}",
+)
+selected_area = CAMPUS_PLANNING_AREAS[selected_area_id]
+area_left, area_right = st.columns(2)
+with area_left:
+    st.markdown(f"**覆盖地标：** {'、'.join(selected_area['landmarks'])}")
+    st.markdown(f"**照明范围：** {selected_area['lighting_scope']}")
+    st.markdown(f"**控制策略：** {selected_area['control_strategy']}")
+with area_right:
+    st.markdown(f"**网关规划：** {selected_area['gateway_plan']}")
+    st.markdown(f"**勘测重点：** {selected_area['survey_notes']}")
+    linked_zones = selected_area["linked_zone_ids"]
+    st.markdown(f"**已关联仿真区：** {', '.join(linked_zones) if linked_zones else '待二期建模'}")
+
+
+st.divider()
+st.subheader("首期主楼仿真试点")
 
 zone_rows = []
 for zone_id, zone in ZONES.items():
@@ -120,7 +176,6 @@ for zone_id, zone in ZONES.items():
         }
     )
 
-st.subheader("规划总览")
 st.markdown(_markdown_table(zone_rows))
 
 gateway = GATEWAYS[DEFAULT_GATEWAY_ID]
@@ -202,6 +257,8 @@ st.markdown(_markdown_table(deployment_rows))
 with st.expander("参数口径说明"):
     st.markdown(
         "- 60 m、120 m、350 m 是当前方案的仿真设计距离，不是现场实测值。\n"
+        "- 校园扩展片区的节点数量是方案估算，LoRa 距离、SF 和网关位置须经现场勘测后进入运行模型。\n"
+        "- 校园地图作为规划底图保存在项目 `assets` 目录，网页不依赖外部图片链接。\n"
         "- 光照曲线、室内衰减系数、人员概率和采样间隔统一维护在 `config.py`。\n"
         "- `environment.py` 只产生 Lux 与 Occupancy，不包含照明控制、LoRa 或数据库逻辑。\n"
         "- 完成现场勘测后，只需替换配置参数，页面与环境模型无需改写。"

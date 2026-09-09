@@ -13,7 +13,7 @@ from importlib.util import find_spec
 import streamlit as st
 
 from config import (
-    APP_ICON, APP_SUBTITLE, APP_TITLE, DEFAULT_EXPERIMENT_MODE,
+    APP_ICON, APP_SUBTITLE, APP_TITLE, CAMPUS_PLANNING_AREAS, DEFAULT_EXPERIMENT_MODE,
     DEVICES, GATEWAYS, PROJECT_TITLE, RESEARCH_AREA,
     SIMULATION_POINTS_PER_DAY, SIMULATION_STEP_MINUTES, ZONES, validate_config,
 )
@@ -80,8 +80,9 @@ def render_home() -> None:
     clock.metric("当前仿真时间", st.session_state.simulation_time.strftime("%Y-%m-%d %H:%M"))
     st.caption("首次进入以当前时间初始化；后续仿真时间由仿真引擎推进。")
 
-    zones, devices, gateways, interval = st.columns(4)
-    zones.metric("规划区域", len(ZONES))
+    areas, zones, devices, gateways, interval = st.columns(5)
+    areas.metric("校园规划片区", len(CAMPUS_PLANNING_AREAS))
+    zones.metric("首期仿真区域", len(ZONES))
     devices.metric("照明节点", len(st.session_state.devices))
     gateways.metric("虚拟网关", len(st.session_state.gateways))
     interval.metric("采样间隔", f"{SIMULATION_STEP_MINUTES} 分钟")
@@ -90,11 +91,11 @@ def render_home() -> None:
     st.success("公共配置检查通过，设备初始状态与本会话故障管理器已准备。")
     st.write("数据库：" + ("已初始化" if st.session_state.database_initialized else "待接入"))
     st.write("仿真引擎：" + ("已接入" if st.session_state.engine_ready else "待接入"))
-    st.info("当前可查看区域与设备规划、环境传感器模拟。其余功能页面将在相应模块完成后开放。")
+    st.info("当前可查看校园地图、全校分期规划、首期设备部署及环境传感器模拟。其余功能页面将在相应模块完成后开放。")
 
     st.subheader("项目功能")
     st.markdown(
-        "- **区域与设备**：查看三区、三节点及网关规划，观察光照和人员变化。\n"
+        "- **区域与设备**：查看校园地图和八个规划片区，并进入首期三区三节点仿真。\n"
         "- **智能照明、LoRa 网络、远程控制**：自动调光、通信质量监测和手动控制。\n"
         "- **能耗分析**：比较传统照明与智能照明的能耗。\n"
         "- **故障告警、运维记录**：故障注入、告警确认、恢复验证与操作追踪。\n"
@@ -102,7 +103,7 @@ def render_home() -> None:
     )
     st.subheader("使用说明")
     st.markdown(
-        "1. 从左侧进入「区域与设备」，了解节点部署及环境参数。\n"
+        "1. 从左侧进入「区域与设备」，查看校园总体规划和首期节点部署。\n"
         "2. 完整仿真功能开放后，通过功能页面运行实验并查看结果。\n"
         "3. 在故障页面注入和恢复故障，在运维记录中追踪处理过程。"
     )

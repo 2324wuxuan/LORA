@@ -18,7 +18,8 @@ from html import escape
 
 import streamlit as st
 
-from config import DEVICES, SIMULATION_STEP_MINUTES, ZONES
+from analysis.energy import calculate_total_energy
+from config import DEVICES, LIGHTING_RULES, SIMULATION_STEP_MINUTES, ZONES
 from control.lighting import auto_control, reset_state
 from simulator.device import VirtualLightingNode
 from simulator.environment import get_lux, get_occupancy
@@ -287,7 +288,8 @@ st.title("💡 智能照明")
 st.caption("按设备查看 24 小时自动调光运行情况：光照、亮度、功率的联动关系")
 st.info(
     "曲线由 environment.py（光照/人员）→ lighting.py（自动调光算法）→ "
-    "device.py（灯具状态与功率）依次计算得到，页面本身不重新实现任何算法。"
+    "device.py（灯具状态与功率）依次计算得到。一期和二、三期代表节点均可选择；"
+    "二、三期结果明确属于仿真估算。"
 )
 
 
@@ -340,6 +342,7 @@ current_index = _current_index(series["timestamps"], selected_timestamp)
 st.divider()
 st.subheader(f"当前状态 · [{selected_device_id}] {device_cfg['device_name']}")
 st.caption(f"所属区域：{device_cfg['zone_id']} {zone_cfg['name']} · {selected_timestamp.strftime('%Y-%m-%d %H:%M')}")
+st.caption(f"参数来源：{device_cfg['parameter_source']}")
 
 current_lux = series["lux"][current_index]
 current_occupancy = series["occupancy"][current_index]
@@ -347,13 +350,18 @@ current_brightness = series["brightness"][current_index]
 current_power = series["power"][current_index]
 lamp_on = current_brightness > 0
 
-metric_cols = st.columns(6)
+metric_cols = st.columns(7)
 metric_cols[0].metric("当前 Lux", f"{current_lux:.1f} lux")
 metric_cols[1].metric("人员状态", "🧍 有人" if current_occupancy else "— 无人")
 metric_cols[2].metric("灯状态", "🟡 ON" if lamp_on else "⚫ OFF")
 metric_cols[3].metric("亮度", f"{current_brightness:.0f}%")
 metric_cols[4].metric("功率", f"{current_power:.1f} W", help=f"额定功率 {series['rated_power']:g} W")
 metric_cols[5].metric("模式", selected_mode)
+daily_energy = calculate_total_energy(
+    ({"power": power} for power in series["power"]),
+    SIMULATION_STEP_MINUTES,
+)
+metric_cols[6].metric("全天能耗", f"{daily_energy:.3f} kWh")
 
 if selected_mode == "MANUAL":
     reference = series["reference_brightness"][current_index]
@@ -390,16 +398,22 @@ with st.expander("单独查看 Lux / Brightness 曲线"):
         ), unsafe_allow_html=True)
 
 with st.expander("控制逻辑说明"):
-    if device_cfg["zone_id"] == "Z01":
+    rule = LIGHTING_RULES[device_cfg["zone_id"]]
+    if zone_cfg["control_mode"] == "LIGHT_OCCUPANCY":
         st.markdown(
-            "- **教室（光照 + 人员）**：Lux < 450 且有人 → 100%；Lux > 550 → 0%；"
-            "450~550 迟滞区间保持上一状态，避免临界值附近反复开关。"
+            f"- **光照 + 人员**：Lux < {rule['lux_on_threshold']:g} 且有人 → "
+            f"{rule['occupied_brightness']:g}%；Lux > {rule['lux_off_threshold']:g} → "
+            f"{rule['unoccupied_brightness']:g}%；中间迟滞区间保持上一状态。"
         )
-    elif device_cfg["zone_id"] == "Z02":
-        st.markdown("- **走廊（仅人员）**：有人 → 100%；无人 → 20% 基础照明，不完全熄灭。")
+    elif zone_cfg["control_mode"] == "OCCUPANCY":
+        st.markdown(
+            f"- **仅人员**：有人 → {rule['occupied_brightness']:g}%；"
+            f"无人 → {rule['unoccupied_brightness']:g}% 基础照明。"
+        )
     else:
         st.markdown(
-            "- **道路（时间 + 光照 + 人员）**：白天（Lux 达到阈值）→ 0%；"
-            "夜间有人 → 100%；夜间无人 → 40% 基础路灯照明。"
+            f"- **时间 + 光照 + 人员**：白天（Lux ≥ {rule['day_lux_threshold']:g}）→ "
+            f"{rule['day_brightness']:g}%；夜间有人 → {rule['night_occupied_brightness']:g}%；"
+            f"夜间无人 → {rule['night_unoccupied_brightness']:g}% 基础照明。"
         )
     st.caption("以上规则来自 control/lighting.py，阈值以 config.LIGHTING_RULES 为准，本页仅展示结果。")

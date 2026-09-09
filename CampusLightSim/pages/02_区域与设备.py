@@ -5,6 +5,11 @@ from html import escape
 
 import streamlit as st
 
+from analysis.energy import (
+    calculate_saving_rate,
+    calculate_traditional_daily_energy,
+    simulate_smart_daily_energy,
+)
 from config import (
     BASE_DIR,
     CAMPUS_NAME,
@@ -55,7 +60,7 @@ def _lux_chart_svg(series: dict[str, list[float]]) -> str:
 
     parts = [
         f'<svg viewBox="0 0 {width} {height}" role="img" '
-        'aria-label="三个区域的24小时自然光照度曲线" '
+        'aria-label="所选片区24小时自然光照度曲线" '
         'style="width:100%;height:auto;background:var(--secondary-background-color);border-radius:8px">'
     ]
     for tick in range(5):
@@ -101,18 +106,19 @@ st.title("🏫 区域与设备规划")
 st.caption(f"研究范围：{SCHOOL_NAME}{CAMPUS_NAME} · {RESEARCH_AREA}")
 st.info(
     "规划已由主楼试点扩展到本部校区教学、科研、生活、体育和道路区域。"
-    "首期三区三节点继续用于可执行仿真，其余片区先作为待勘测部署方案，"
-    "避免把未经测量的 LoRa 距离直接写入运行模型。"
+    "二、三期每个片区现已接入一个代表仿真节点；所有新增参数均明确标为“仿真估算”，"
+    "用于先行运行 Lux、Occupancy、智能照明和能耗仿真，不代表现场实测或最终施工配置。"
 )
 
 
 st.subheader("校园总体规划地图")
 planned_nodes = sum(area["recommended_nodes"] for area in CAMPUS_PLANNING_AREAS.values())
-plan_col, pilot_col, node_total_col, phase_col = st.columns(4)
+simulation_nodes = sum(area["simulation_nodes"] for area in CAMPUS_PLANNING_AREAS.values())
+plan_col, zone_col, simulation_col, node_total_col = st.columns(4)
 plan_col.metric("校园规划片区", len(CAMPUS_PLANNING_AREAS))
-pilot_col.metric("首期仿真区域", len(ZONES))
-node_total_col.metric("建议照明节点", planned_nodes)
-phase_col.metric("建设阶段", "三期")
+zone_col.metric("代表仿真区域", len(ZONES))
+simulation_col.metric("代表仿真节点", simulation_nodes)
+node_total_col.metric("建议部署节点", planned_nodes)
 
 map_path = BASE_DIR / CAMPUS_MAP["asset_path"]
 if map_path.exists():
@@ -132,6 +138,8 @@ for area_id, area in CAMPUS_PLANNING_AREAS.items():
             "阶段": area["phase"],
             "优先级": area["priority"],
             "状态": area["status"],
+            "参数性质": "仿真估算" if "仿真估算" in area["parameter_source"] else "一期仿真设计",
+            "代表节点": area["simulation_nodes"],
             "建议节点": area["recommended_nodes"],
         }
     )
@@ -152,11 +160,12 @@ with area_right:
     st.markdown(f"**网关规划：** {selected_area['gateway_plan']}")
     st.markdown(f"**勘测重点：** {selected_area['survey_notes']}")
     linked_zones = selected_area["linked_zone_ids"]
-    st.markdown(f"**已关联仿真区：** {', '.join(linked_zones) if linked_zones else '待二期建模'}")
+    st.markdown(f"**已关联仿真区：** {', '.join(linked_zones)}")
+    st.markdown(f"**参数来源：** {selected_area['parameter_source']}")
 
 
 st.divider()
-st.subheader("首期主楼仿真试点")
+st.subheader("全校代表仿真区域")
 
 zone_rows = []
 for zone_id, zone in ZONES.items():
@@ -173,6 +182,7 @@ for zone_id, zone in ZONES.items():
             "网关距离": f"{device.get('distance_to_gateway_m', 0):g} m",
             "LoRa SF": device.get("lora_sf", "—"),
             "控制方式": zone["control_mode"],
+            "参数性质": "仿真估算" if "仿真估算" in zone["parameter_source"] else "一期设计",
         }
     )
 
@@ -215,6 +225,7 @@ with detail_col:
     probability_col.metric("时段人员概率", f"{occupancy_probability:.0%}")
     st.markdown(f"**环境特点：** {zone['description']}")
     st.markdown(f"**控制依据：** {' + '.join(rule['control_features'])}")
+    st.markdown(f"**参数来源：** {zone['parameter_source']}")
     st.caption(
         "人员状态由配置中的校园活动规律进行确定性采样；同一区域、日期和采样时段可重复得到相同结果。"
     )
@@ -227,10 +238,46 @@ chart_data = {
         get_lux(zone_id, day_start + timedelta(minutes=30 * index))
         for index in range(48)
     ]
-    for zone_id in ZONES
+    for zone_id in CAMPUS_PLANNING_AREAS[zone["planning_area_id"]]["linked_zone_ids"]
 }
 st.markdown(_lux_chart_svg(chart_data), unsafe_allow_html=True)
-st.caption("道路接收室外自然光最多，走廊次之，教室受建筑遮挡和窗体透射影响最低。")
+st.caption("曲线展示当前区域所属片区的代表节点；室内外差异由 config.py 中的场景光照系数表达。")
+
+
+st.divider()
+st.subheader("代表节点 24 小时能耗仿真")
+energy_result = simulate_smart_daily_energy(selected_date)
+traditional_total = calculate_traditional_daily_energy()
+smart_total = energy_result["total_energy_kwh"]
+energy_cols = st.columns(4)
+energy_cols[0].metric("传统策略", f"{traditional_total:.3f} kWh")
+energy_cols[1].metric("智能策略", f"{smart_total:.3f} kWh")
+energy_cols[2].metric("估算节能率", f"{calculate_saving_rate(traditional_total, smart_total):.1f}%")
+energy_cols[3].metric("参与区域", f"{len(energy_result['zone_energy_kwh'])}/{len(ZONES)}")
+st.caption(
+    "结果是 10 个代表回路在所选日期的仿真估算，不是 69 个建议部署节点的全校实测总电量。"
+)
+
+energy_rows = []
+for area_id, area in CAMPUS_PLANNING_AREAS.items():
+    area_devices = {
+        device_id: device
+        for device_id, device in DEVICES.items()
+        if device["planning_area_id"] == area_id
+    }
+    traditional = calculate_traditional_daily_energy(area_devices)
+    smart = energy_result["planning_area_energy_kwh"].get(area_id, 0.0)
+    energy_rows.append(
+        {
+            "片区": f"{area_id} {area['name']}",
+            "代表回路": len(area_devices),
+            "传统 (kWh)": f"{traditional:.3f}",
+            "智能 (kWh)": f"{smart:.3f}",
+            "节能率": f"{calculate_saving_rate(traditional, smart):.1f}%",
+            "口径": "仿真估算" if "仿真估算" in area["parameter_source"] else "一期设计",
+        }
+    )
+st.markdown(_markdown_table(energy_rows))
 
 
 st.divider()
@@ -250,14 +297,16 @@ for device_id, device in DEVICES.items():
             "SF": device["lora_sf"],
             "主网络": device["primary_network"],
             "补充网络": device.get("backup_network") or "—",
+            "参数性质": "仿真估算" if "仿真估算" in device["parameter_source"] else "一期设计",
         }
     )
 st.markdown(_markdown_table(deployment_rows))
 
 with st.expander("参数口径说明"):
     st.markdown(
-        "- 60 m、120 m、350 m 是当前方案的仿真设计距离，不是现场实测值。\n"
-        "- 校园扩展片区的节点数量是方案估算，LoRa 距离、SF 和网关位置须经现场勘测后进入运行模型。\n"
+        "- 一期和二、三期的距离、功率、SF、光照系数及人员时段均不是现场实测值。\n"
+        "- 二、三期配置明确标注为“仿真估算”，依据校园地图相对位置和教室、阅览区、体育场、宿舍走廊、科研公共区、道路等场景类型给出。\n"
+        "- 69 个建议节点表示后续部署量；当前只有 10 个代表节点参加逐点仿真，不能直接外推为全校真实能耗。\n"
         "- 校园地图作为规划底图保存在项目 `assets` 目录，网页不依赖外部图片链接。\n"
         "- 光照曲线、室内衰减系数、人员概率和采样间隔统一维护在 `config.py`。\n"
         "- `environment.py` 只产生 Lux 与 Occupancy，不包含照明控制、LoRa 或数据库逻辑。\n"

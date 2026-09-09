@@ -5,6 +5,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
+from config import DEVICES
 from database import db
 from simulator.device import VirtualLightingNode
 from simulator.fault import check_fault
@@ -34,7 +35,7 @@ class DatabaseTests(unittest.TestCase):
         node.turn_on()
         db.save_device(node.to_dict())
         db.save_device({"device_id": node.device_id, "rssi": -110})
-        self.assertEqual(len(db.get_all_devices()), 3)
+        self.assertEqual(len(db.get_all_devices()), len(DEVICES))
         self.assertEqual(db.get_device(node.device_id)["power"], 40)
         self.assertEqual(db.get_device(node.device_id)["rssi"], -110)
         self.assertTrue(db.delete_device(node.device_id))
@@ -57,7 +58,7 @@ class DatabaseTests(unittest.TestCase):
         target = "GW-01'; DROP TABLE devices; --"
         alarm_id = db.add_alarm(target, "gateway_offline", "CRITICAL", "网关离线")
         self.assertEqual(db.get_alarms(device_id=target)[0]["device_id"], target)
-        self.assertEqual(len(db.get_all_devices()), 3)
+        self.assertEqual(len(db.get_all_devices()), len(DEVICES))
         self.assertTrue(db.update_alarm_status(alarm_id, "ACKNOWLEDGED"))
         self.assertFalse(db.update_alarm_status("missing", "CLOSED"))
         with self.assertRaises(ValueError):

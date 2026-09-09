@@ -31,7 +31,8 @@ alarms / operation_logs
 
 `engine.py` 统一调度：更新时间 → 环境光照 → 人员状态 → 自动照明 → 灯具亮度 → 功率 → LoRa → RSSI/SNR/丢包 → 网关 → 数据库 → 告警。
 
-参考文档要求 5 分钟一个时间点、24 小时 288 点、3 个节点约 864 条数据。
+每个节点 5 分钟一个时间点、24 小时 288 点；一期 3 个节点为 864 条，
+全校 10 个代表节点为 2880 条。二、三期代表节点均为“仿真估算”。
 
 ## 2. 统一 ID
 
@@ -40,16 +41,31 @@ alarms / operation_logs
 | Z01 | 主楼典型教室 | indoor_classroom | LIGHT_OCCUPANCY |
 | Z02 | 主楼一层公共走廊 | indoor_corridor | OCCUPANCY |
 | Z03 | 主楼附近道路 | outdoor_road | TIME_LIGHT_OCCUPANCY |
+| Z04 | 教学楼群典型教室 | indoor_classroom | LIGHT_OCCUPANCY |
+| Z05 | 图书馆典型阅览区 | indoor_library | LIGHT_OCCUPANCY |
+| Z06 | 体育场馆典型场地 | outdoor_sports | TIME_LIGHT_OCCUPANCY |
+| Z07 | 学生公寓典型公共走廊 | indoor_dormitory_corridor | OCCUPANCY |
+| Z08 | 科研楼典型公共区 | indoor_research_common | LIGHT_OCCUPANCY |
+| Z09 | 校园主干道与校门 | outdoor_road | TIME_LIGHT_OCCUPANCY |
+| Z10 | 校医院及家属区公共道路 | outdoor_public_service | TIME_LIGHT_OCCUPANCY |
 
 | device_id | zone_id | 功率 | 网关距离 | SF | 通信 |
 |---|---|---:|---:|---:|---|
 | CL-N01 | Z01 | 80W | 60m | 7 | LoRaWAN |
 | CL-N02 | Z02 | 50W | 120m | 9 | LoRaWAN |
 | CL-N03 | Z03 | 120W | 350m | 12 | LoRaWAN + NB-IoT补充 |
+| CL-N04 | Z04 | 72W | 260m | 10 | LoRaWAN |
+| CL-N05 | Z05 | 96W | 220m | 9 | LoRaWAN |
+| CL-N06 | Z06 | 400W | 360m | 11 | LoRaWAN |
+| CL-N07 | Z07 | 48W | 480m | 12 | LoRaWAN |
+| CL-N08 | Z08 | 72W | 320m | 10 | LoRaWAN |
+| CL-N09 | Z09 | 120W | 520m | 12 | LoRaWAN + NB-IoT补充 |
+| CL-N10 | Z10 | 80W | 450m | 12 | LoRaWAN |
 
 `GW-01` 为 LoRa 网关。
 
-> 60m/120m/350m 是当前仿真设计参数，不是北邮现场实测数据；实际部署后只修改 `config.py`。
+> 一期参数为仿真设计值；Z04~Z10 的距离、功率、SF、光照系数和人员时段为
+> 基于校园地图与场景类型的“仿真估算”，均不是北邮现场实测数据。
 
 ## 3. 核心数据结构
 
@@ -162,23 +178,23 @@ def auto_control(
     ...
 ```
 
-规则：
+规则按 `ZONES[zone_id]["control_mode"]` 复用，具体阈值来自 `LIGHTING_RULES`：
 
 ```text
-Z01 教室：
-lux > 550 → 0%
-lux < 450 + 有人 → 100%
-lux < 450 + 无人 → 0%
-450~550 → 保持上一状态（滞回）
+LIGHT_OCCUPANCY（Z01/Z04/Z05/Z08）：
+lux > lux_off_threshold → unoccupied_brightness
+lux < lux_on_threshold + 有人 → occupied_brightness
+lux < lux_on_threshold + 无人 → unoccupied_brightness
+两个阈值之间 → 保持上一状态（滞回）
 
-Z02 走廊：
+OCCUPANCY（Z02/Z07）：
 有人 → 100%
-无人 → 20%
+无人 → 配置的基础亮度
 
-Z03 道路：
+TIME_LIGHT_OCCUPANCY（Z03/Z06/Z09/Z10）：
 白天 → 0%
 夜间 + 有人 → 100%
-夜间 + 无人 → 40%
+夜间 + 无人 → 配置的基础亮度
 ```
 
 只负责计算 `brightness`，不负责数据库、LoRa、页面。
@@ -457,7 +473,16 @@ def calculate_saving_rate(
     smart_energy: float
 ) -> float:
     ...
+
+def simulate_smart_daily_energy(
+    simulation_day: date | datetime,
+    device_ids: Iterable[str] | None = None
+) -> dict:
+    ...
 ```
+
+`simulate_smart_daily_energy` 将每个代表节点接入环境、自动调光和功率计算，
+返回设备、区域、规划片区及全校代表回路的逐日仿真估算能耗。
 
 公式：
 

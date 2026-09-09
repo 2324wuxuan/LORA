@@ -13,8 +13,8 @@
       本模块算好的 brightness 通过它传给设备）。
     - 不访问数据库、不模拟 LoRa/网关通信、不涉及 Streamlit 页面。
 
-三个区域的规则（详见 config.LIGHTING_RULES，阈值以 config.py 为准，
-本文件不重复硬编码，避免两处参数漂移）：
+所有区域按 config.ZONES 中的 control_mode 复用三类规则；阈值统一来自
+config.LIGHTING_RULES，本文件不按区域编号硬编码，便于扩展代表仿真节点：
 
 Z01 主楼典型教室（LIGHT_OCCUPANCY，光照 + 人员）::
 
@@ -47,7 +47,7 @@ from datetime import datetime
 from math import isfinite
 from numbers import Real
 
-from config import get_lighting_rule
+from config import get_lighting_rule, get_zone
 
 
 # ---------------------------------------------------------------------------
@@ -145,13 +145,6 @@ def _control_road(zone_id: str, lux: float, occupancy: bool) -> float:
     return night_occupied if occupancy else night_unoccupied
 
 
-_ZONE_HANDLERS = {
-    "Z01": lambda zone_id, lux, occupancy: _control_classroom(zone_id, lux, occupancy),
-    "Z02": lambda zone_id, lux, occupancy: _control_corridor(zone_id, occupancy),
-    "Z03": lambda zone_id, lux, occupancy: _control_road(zone_id, lux, occupancy),
-}
-
-
 def auto_control(
     zone_id: str,
     lux: float,
@@ -175,14 +168,18 @@ def auto_control(
         ValueError / TypeError：lux、occupancy、timestamp 类型或取值非法。
     """
     _validate_inputs(zone_id, lux, occupancy)
-    handler = _ZONE_HANDLERS.get(zone_id)
-    if handler is None:
-        # 触发 config 里统一的“区域没有配置照明策略”报错，保持信息一致。
-        get_lighting_rule(zone_id)
-        raise KeyError(f"lighting.py 尚未实现该区域的控制逻辑: {zone_id}")
-
+    zone = get_zone(zone_id)
+    get_lighting_rule(zone_id)
     _check_timeline(zone_id, timestamp)
-    brightness = handler(zone_id, float(lux), occupancy)
+    control_mode = zone.get("control_mode")
+    if control_mode == "LIGHT_OCCUPANCY":
+        brightness = _control_classroom(zone_id, float(lux), occupancy)
+    elif control_mode == "OCCUPANCY":
+        brightness = _control_corridor(zone_id, occupancy)
+    elif control_mode == "TIME_LIGHT_OCCUPANCY":
+        brightness = _control_road(zone_id, float(lux), occupancy)
+    else:
+        raise ValueError(f"{zone_id} 使用了不支持的控制模式: {control_mode}")
     return max(0.0, min(100.0, brightness))
 
 

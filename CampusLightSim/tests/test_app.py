@@ -12,6 +12,7 @@ from config import DEVICES
 
 APP = Path(__file__).resolve().parents[1] / "app.py"
 DEVICE_PAGE = APP.parent / "pages" / "02_区域与设备.py"
+LIGHTING_PAGE = APP.parent / "pages" / "03_智能照明.py"
 
 
 class AppTests(unittest.TestCase):
@@ -48,6 +49,15 @@ class AppTests(unittest.TestCase):
         self.assertFalse(app.exception)
         self.assertIn("区域与设备", app.title[0].value)
         self.assertTrue(any("校园总体规划地图" in item.value for item in app.subheader))
+
+    def test_lighting_page_supports_all_representative_devices(self):
+        app = AppTest.from_file(str(LIGHTING_PAGE)).run(timeout=20)
+        self.assertFalse(app.exception)
+        self.assertIn("智能照明", app.title[0].value)
+        self.assertEqual(len(app.selectbox[0].options), len(DEVICES))
+        app.selectbox[0].select("CL-N10").run(timeout=20)
+        self.assertFalse(app.exception)
+        self.assertTrue(any("仿真估算" in item.value for item in app.caption))
 
     def test_invalid_config_stops_initialization(self):
         with patch("config.validate_config", return_value=(False, ["测试配置错误"])):

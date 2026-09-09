@@ -138,9 +138,9 @@ def main() -> None:
     pages = [
         st.Page(render_home, title="系统总览", icon="🏠", default=True),
         st.Page("pages/02_区域与设备.py", title="区域与设备", icon="🏫", url_path="devices"),
+        st.Page("pages/03_智能照明.py", title="智能照明", icon="💡", url_path="lighting"),
     ]
     for title, path, description in [
-        ("智能照明", "lighting", "查看自动照明策略与灯具运行状态。"),
         ("LoRa网络", "lora", "查看 RSSI、SNR、丢包及网关通信情况。"),
         ("远程控制", "control", "向照明节点发送手动控制指令。"),
         ("能耗分析", "energy", "查看累计能耗和节能效果。"),

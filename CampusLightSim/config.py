@@ -128,6 +128,35 @@ LIGHTING_RULES = {
 ENVIRONMENT = {
     "lux_profile": {0: 5, 6: 50, 8: 200, 10: 450, 12: 650, 14: 580, 17: 250, 19: 30, 23: 5},
     "lux_random_variation_ratio": 0.05,
+    # The profile above represents unobstructed outdoor daylight.  These
+    # factors model the amount of daylight that reaches each scene.
+    "zone_lux_factors": {
+        "Z01": 0.72,  # classroom windows and indoor attenuation
+        "Z02": 0.86,  # corridor receives indirect daylight
+        "Z03": 1.00,  # outdoor road
+    },
+    # Occupancy is sampled once per interval so a sensor does not flicker on
+    # every call.  Each tuple is (start_hour, end_hour, probability).
+    "occupancy_sample_interval_minutes": 15,
+    "occupancy_probability_schedules": {
+        "Z01": [
+            (0, 7, 0.01), (7, 8, 0.20), (8, 12, 0.90),
+            (12, 14, 0.25), (14, 18, 0.90), (18, 22, 0.20),
+            (22, 24, 0.01),
+        ],
+        "Z02": [
+            (0, 6, 0.01), (6, 8, 0.25), (8, 9, 0.85),
+            (9, 10, 0.12), (10, 11, 0.80), (11, 12, 0.15),
+            (12, 14, 0.55), (14, 15, 0.80), (15, 16, 0.15),
+            (16, 17, 0.80), (17, 18, 0.35), (18, 22, 0.15),
+            (22, 24, 0.02),
+        ],
+        "Z03": [
+            (0, 6, 0.02), (6, 8, 0.65), (8, 12, 0.25),
+            (12, 14, 0.60), (14, 17, 0.25), (17, 18, 0.55),
+            (18, 22, 0.85), (22, 24, 0.20),
+        ],
+    },
     "occupancy": {
         "Z01": {"morning_start": 8, "morning_end": 12, "afternoon_start": 14, "afternoon_end": 18, "night_start": 22},
         "Z02": {"peak_hours": [(8, 9), (10, 11), (14, 15), (16, 17)]},
@@ -197,6 +226,8 @@ SYSTEM = {
 
 ENERGY = {
     "traditional_brightness": 100,
+    "traditional_start_hour": 7,
+    "traditional_end_hour": 22,
     "unit": "kWh",
     "formula": "E = P_rated × brightness × Δt / 1000",
     "compare_modes": ["TRADITIONAL", "SMART"],
@@ -252,6 +283,33 @@ def validate_config() -> tuple[bool, list[str]]:
             errors.append(f"{device_id}: distance_to_gateway_m必须大于0")
     if DEFAULT_GATEWAY_ID not in GATEWAYS:
         errors.append(f"默认网关{DEFAULT_GATEWAY_ID}不存在")
+
+    lux_profile = ENVIRONMENT.get("lux_profile", {})
+    if not lux_profile or 0 not in lux_profile:
+        errors.append("环境光照曲线必须包含0时锚点")
+    if any(float(lux) < 0 for lux in lux_profile.values()):
+        errors.append("环境光照值不能小于0")
+
+    lux_factors = ENVIRONMENT.get("zone_lux_factors", {})
+    occupancy_schedules = ENVIRONMENT.get("occupancy_probability_schedules", {})
+    for zone_id in ZONES:
+        if float(lux_factors.get(zone_id, 0)) <= 0:
+            errors.append(f"{zone_id}: zone_lux_factor必须大于0")
+        schedule = occupancy_schedules.get(zone_id, [])
+        cursor = 0.0
+        for start_hour, end_hour, probability in schedule:
+            if float(start_hour) != cursor or float(end_hour) <= float(start_hour):
+                errors.append(f"{zone_id}: 人员活动时段必须连续覆盖全天")
+                break
+            if not 0 <= float(probability) <= 1:
+                errors.append(f"{zone_id}: 人员概率必须在0~1之间")
+                break
+            cursor = float(end_hour)
+        if cursor != 24.0:
+            errors.append(f"{zone_id}: 人员活动时段必须覆盖到24时")
+
+    if int(ENVIRONMENT.get("occupancy_sample_interval_minutes", 0)) <= 0:
+        errors.append("人员传感器采样间隔必须大于0")
     return len(errors) == 0, errors
 
 

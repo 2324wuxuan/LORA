@@ -68,7 +68,12 @@ def _build_day_series(device_id: str, day: date, mode: str, manual_brightness: f
             brightness = auto_brightness
 
         node.update_environment(lux, occupancy)
-        node.turn_on() if brightness > 0 else node.turn_off()
+        # 不使用三元表达式调用无返回值的方法。Streamlit 会自动渲染裸表达式，
+        # turn_on()/turn_off() 的返回值 None 会因此在页面上重复显示。
+        if brightness > 0:
+            node.turn_on()
+        else:
+            node.turn_off()
         node.set_brightness(brightness)
 
         timestamps.append(timestamp)

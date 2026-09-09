@@ -307,6 +307,34 @@ environment
 
 ## 10. database/db.py
 
+当前第一版已实现 `devices / alarms / maintenance`，启动调用
+`init_database()` 或兼容别名 `init_db()`，自动创建 `config.DATABASE_PATH`。
+下面原规划中的遥测、操作日志接口留待引擎接入时实现。
+
+```python
+from database.db import (
+    init_database, save_device, get_device, get_all_devices, delete_device,
+    add_alarm, save_alarm, get_alarms, update_alarm_status, delete_alarm,
+    add_maintenance_record, get_maintenance_records,
+    update_maintenance_record, delete_maintenance_record,
+)
+
+init_database()
+# save_device 接受 VirtualLightingNode 或字典，按编号更新已提供字段。
+# get_device 未找到返回 None；列表查询返回 list[dict]。
+alarm_id = add_alarm("CL-N01", "low_rssi", "WARNING", "RSSI 太低")
+update_alarm_status(alarm_id, "ACKNOWLEDGED")
+record_id = add_maintenance_record("CL-N01", "信号弱", "调整天线", "张三")
+```
+
+设备保存当前模型字段，并支持 `area/x/y/rssi/snr/packet_loss/fault/fault_type`；
+`zone/area` 缺失一方时互相补齐，未提供的测量值为 NULL，不推断故障。
+告警编号使用 TEXT UUID，与 `fault.py` 一致；`save_alarm` 接受其快照并按编号
+更新，查询同时返回 `alarm_type/severity/timestamp` 和 `fault_type/level/created_at`。
+时间返回 ISO 文本。告警状态为 `OPEN/ACKNOWLEDGED/CLOSED`；状态更新不自动
+推断恢复时间，恢复时间由故障快照提供。维修默认状态为 `COMPLETED`，支持自定义
+非空状态。更新、删除接口返回是否找到记录；删除设备保留历史告警和维修记录。
+
 负责人：吴。
 
 ```python
@@ -405,7 +433,8 @@ sensor_abnormal / gateway_offline`。默认额外损耗 25 dB、额外丢包概�
 Alarm 增加 `fault_code`，关闭后增加 `recovered_at`；OperationLog 在原有
 字段上补充 `fault_type / severity / description`。告警列表包含历史记录，
 数据库应按 `alarm_id` 更新；日志列表是累计快照，调用方应按已保存位置
-增量持久化，避免重复插入。当前数据库模块尚未实现，管理器仅保存在内存。
+增量持久化，避免重复插入。数据库已提供 `save_alarm`；管理器仍仅保存在内存，
+由调用方显式保存快照。操作日志持久化接口尚待实现。
 
 ## 12. analysis/energy.py
 

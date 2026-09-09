@@ -2,6 +2,7 @@
 import unittest
 from datetime import datetime
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from streamlit.testing.v1 import AppTest
@@ -13,13 +14,20 @@ APP = Path(__file__).resolve().parents[1] / "app.py"
 
 
 class AppTests(unittest.TestCase):
+    def setUp(self):
+        directory = TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        patcher = patch("database.db.DATABASE_PATH", Path(directory.name) / "campus.db")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_home_and_state_survive_rerun(self):
         app = AppTest.from_file(str(APP)).run(timeout=20)
         self.assertFalse(app.exception)
         self.assertIn("CampusLightSim", app.title[0].value)
         self.assertTrue(app.session_state.devices_initialized)
         self.assertFalse(app.session_state.simulation_running)
-        self.assertFalse(app.session_state.database_initialized)
+        self.assertTrue(app.session_state.database_initialized)
         self.assertFalse(app.session_state.engine_ready)
         manager = app.session_state.fault_manager
         timestamp = datetime(2026, 9, 9, 12)

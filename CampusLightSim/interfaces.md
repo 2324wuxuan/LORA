@@ -349,14 +349,63 @@ def check_fault(
 
 ```text
 节点离线
-RSSI < -110 dBm
-RSSI < -120 dBm
-PDR < 0.80
-传感器异常
+RSSI <= -115 dBm → WARNING；RSSI <= -120 dBm → CRITICAL
+PDR < 0.90 → WARNING；PDR < 0.80 → CRITICAL（PDR 使用 0~1 比例）
+Lux < 0 或 Lux > 100000，以及缺失/非有限光照值 → CRITICAL
 网关离线
 ```
 
 故障模块负责“检测并生成 Alarm”，数据库保存由 `db.py` 完成。
+
+2026-09-09 售后运维初稿实现保留上述 `check_fault` 调用形式，并补充
+`FaultManager` 管理跨周期状态。连续 3 个周期无有效数据产生离线告警，
+同一 RSSI/PDR 指标只生成最高级别的告警。`check_fault` 本身无状态，
+跨周期去重、确认和恢复请使用管理器。接入示例：
+
+```python
+from simulator.fault import FaultManager
+
+faults = FaultManager()  # 每次仿真/页面会话创建一次并持有
+faults.inject_fault("CL-N01", "signal_attenuation", timestamp=now)
+
+# 每周期：先处理传感器，再执行照明控制，然后计算正常 LoRa 结果。
+environment = faults.apply_sensor("CL-N01", environment)
+if environment["sensor_valid"]:
+    # 调用 lighting，实际成功后令 auto_control_ok=True
+    pass
+
+result = faults.sample(
+    device, telemetry, gateway_status="ONLINE",
+    timestamp=now, auto_control_ok=auto_control_ok,
+)
+# telemetry 是本周期的数据，包含处理后的 Lux 和正常 LoRa 模块输出。
+# 丢包/无数据也必须调用 sample（无数据传 None），每节点时间严格递增。
+# result['device'] 给出有效 ONLINE/OFFLINE 状态，不修改原始设备字典。
+# result['telemetry'] 是受故障影响的当次结果，PDR 为最近 20 次上传实测值。
+# 仅 result['accept_telemetry'] 为 True 时保存为正常遥测。
+# result['latest_telemetry'] 保留最近一次成功上传的有效数据。
+
+faults.recover_device("CL-N01", timestamp=now)  # 此时仅 PENDING
+# 后续 sample 收到新正常数据、RSSI > -115、PDR >= 0.9，且
+# auto_control_ok=True 才关闭告警；外部设备仍离线时不会恢复。
+# 网关恢复需要网关在线并通过至少一个节点的正常上传/控制验证。
+alarms = faults.get_alarms()
+logs = faults.get_operation_logs()
+```
+
+注入类型：`node_offline / signal_attenuation / high_packet_loss /
+sensor_abnormal / gateway_offline`。默认额外损耗 25 dB、额外丢包概率 40%、
+非法光照 -1 Lux；99999 Lux 在此标准下合法，不能用于非法值注入。
+额外丢包只会把原本成功的包变成丢包，不会让正常 LoRa 已丢失的包恢复。
+
+`acknowledge_alarm(alarm_id, description)` 确认告警，可记录分析原因；
+`record_manual_control(device_id, result, description)` 记录设备模块报告的
+实际手动控制结果（SUCCESS/FAILED），不直接控制灯具。
+
+Alarm 增加 `fault_code`，关闭后增加 `recovered_at`；OperationLog 在原有
+字段上补充 `fault_type / severity / description`。告警列表包含历史记录，
+数据库应按 `alarm_id` 更新；日志列表是累计快照，调用方应按已保存位置
+增量持久化，避免重复插入。当前数据库模块尚未实现，管理器仅保存在内存。
 
 ## 12. analysis/energy.py
 

@@ -153,10 +153,10 @@ def main() -> None:
         st.Page("pages/02_区域与设备.py", title="区域与设备", icon="🏫", url_path="devices"),
         st.Page("pages/03_智能照明.py", title="智能照明", icon="💡", url_path="lighting"),
         st.Page("pages/04_LoRa网络.py", title="LoRa网络", icon="📡", url_path="lora"),
+        st.Page("pages/06_能耗分析.py", title="能耗分析", icon="🔋", url_path="energy"),
     ]
     for title, path, description in [
         ("远程控制", "control", "向照明节点发送手动控制指令。"),
-        ("能耗分析", "energy", "查看累计能耗和节能效果。"),
         ("故障告警", "faults", "注入故障、确认告警并验证设备恢复。"),
         ("运维记录", "operations", "追踪操作结果和故障处理过程。"),
         ("实验测试", "experiments", "运行仿真场景，检查系统功能。"),

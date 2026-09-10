@@ -10,6 +10,7 @@ from datetime import datetime
 import streamlit as st
 
 from config import CAMPUS_PLANNING_AREAS, DEVICES, SYSTEM, ZONES
+from database import db
 
 
 st.title("🎛️ 远程照明控制")
@@ -48,6 +49,9 @@ def is_online(device: dict) -> bool:
 
 
 def log_operation(device_id: str, operation: str, result: str = "SUCCESS") -> None:
+    db.init_db()
+    db.save_operation_log(dict(device_id=device_id, operation=operation, result=result,
+                               description="远程控制页面操作", severity="INFO"))
     st.session_state.operation_logs.insert(
         0,
         {

@@ -70,7 +70,7 @@ class FaultTests(unittest.TestCase):
         self.assertEqual(result["telemetry"]["rssi"], -120)
         self.assertEqual(self.data["rssi"], -95)
         self.assertIn("very_low_rssi", {a["alarm_type"] for a in result["alarms"]})
-        self.assertEqual(len(self.sample()["alarms"]), 1)
+        self.assertEqual(len(self.sample()["alarms"]), 2)  # 注入提示与实际信号阈值告警
 
     def test_packet_loss_is_observed_and_recovers(self):
         self.manager.inject_fault("CL-N01", "high_packet_loss")
@@ -91,8 +91,8 @@ class FaultTests(unittest.TestCase):
         self.assertFalse(self.sample()["accept_telemetry"])
         self.manager.recover_device("CL-N01", "sensor_abnormal", timestamp=self.now)
         self.assertFalse(self.sample(auto_control_ok=True)["recovered"])
-        with self.assertRaises(ValueError):
-            self.manager.inject_fault("CL-N01", "sensor_abnormal", value=99999)
+        self.manager.inject_fault("CL-N01", "sensor_abnormal", value=99999)
+        self.assertFalse(self.manager.apply_sensor("CL-N01", self.data)["sensor_valid"])
 
     def test_gateway_shared_alarm_and_recovery(self):
         self.manager.inject_fault("GW-01", "gateway_offline", timestamp=self.now)

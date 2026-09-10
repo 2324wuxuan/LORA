@@ -154,14 +154,14 @@ def main() -> None:
         st.Page("pages/03_智能照明.py", title="智能照明", icon="💡", url_path="lighting"),
         st.Page("pages/04_LoRa网络.py", title="LoRa网络", icon="📡", url_path="lora"),
         st.Page("pages/06_能耗分析.py", title="能耗分析", icon="🔋", url_path="energy"),
+        st.Page("pages/07_故障告警.py", title="故障告警", icon="🚨", url_path="faults"),
+        st.Page("pages/08_运维记录.py", title="运维记录", icon="📝", url_path="operations"),
     ]
     # 远程控制使用独立页面；其他尚未实现模块继续保持原有占位逻辑。
     pages.append(
         st.Page("pages/05_远程控制.py", title="远程控制", icon="🎛️", url_path="control")
     )
     for title, path, description in [
-        ("故障告警", "faults", "注入故障、确认告警并验证设备恢复。"),
-        ("运维记录", "operations", "追踪操作结果和故障处理过程。"),
         ("实验测试", "experiments", "运行仿真场景，检查系统功能。"),
     ]:
         pages.append(st.Page(partial(render_pending, title, description),

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timedelta
 from math import isfinite
 from numbers import Real
 from random import Random
@@ -58,6 +58,8 @@ def check_fault(device: dict, telemetry: dict | None,
     alarms = []
 
     def add(kind, message, target=device_id):
+        if any(a["alarm_type"] == kind and a["device_id"] == target for a in alarms):
+            return
         if FAULTS[kind]["enabled"]:
             alarms.append({
                 "alarm_id": str(uuid4()), "timestamp": timestamp,
@@ -67,6 +69,14 @@ def check_fault(device: dict, telemetry: dict | None,
             })
 
     online = _online(device)
+    injected = device.get("faults", {})
+    if "sensor_abnormal" in injected:
+        add("sensor_abnormal", "已注入光照传感器异常，禁止参与自动照明决策")
+    if "signal_attenuation" in injected:
+        alarms.append(dict(alarm_id=str(uuid4()), timestamp=timestamp, device_id=device_id,
+                           alarm_type="signal_attenuation", fault_code="INJECT_SIGNAL",
+                           severity="WARNING", message=f"已注入 {injected['signal_attenuation']:g} dB 信号衰减",
+                           status="OPEN"))
     if not online or device.get("missed_cycles", 0) >= TELEMETRY["offline_after_failed_uploads"]:
         add("node_offline", "节点离线或连续三个采样周期无有效数据")
     if gateway_status != "ONLINE":
@@ -119,7 +129,7 @@ class FaultManager:
             raise KeyError(f"未知设备：{device_id}")
 
     def _log(self, device_id, operation, fault_type, severity, result, description, timestamp):
-        log = dict(timestamp=timestamp, device_id=device_id, operation=operation,
+        log = dict(log_id=str(uuid4()), timestamp=timestamp, device_id=device_id, operation=operation,
                    fault_type=fault_type, severity=severity, result=result,
                    description=description)
         self._logs.append(log)
@@ -144,7 +154,7 @@ class FaultManager:
                 raise ValueError("额外损耗必须大于 0 dB")
             if fault_type == "high_packet_loss" and not 0 < value <= 1:
                 raise ValueError("额外丢包概率必须在 (0, 1] 范围内")
-            if fault_type == "sensor_abnormal" and is_valid_lux(value):
+            if fault_type == "sensor_abnormal" and is_valid_lux(value) and value != 99999:
                 raise ValueError("传感器注入值必须非法，例如 -1 或 100001 Lux")
         self._faults[device_id][fault_type] = value
         severity = "WARNING" if fault_type in {"signal_attenuation", "high_packet_loss"} else "CRITICAL"
@@ -172,8 +182,20 @@ class FaultManager:
         result = deepcopy(environment)
         if "sensor_abnormal" in self._faults[device_id]:
             result["lux"] = self._faults[device_id]["sensor_abnormal"]
-        result["sensor_valid"] = is_valid_lux(result.get("lux"))
+        result["sensor_valid"] = (is_valid_lux(result.get("lux"))
+                                  and "sensor_abnormal" not in self._faults[device_id])
         return result
+
+    def next_sample_time(self, device_id: str, timestamp: datetime) -> datetime:
+        """供按步检测页面使用，避免页面重跑或其他引擎调用造成重复周期。"""
+        previous = self._last_time.get(device_id)
+        return max(timestamp, previous + timedelta(minutes=TELEMETRY["upload_interval_minutes"])) if previous else timestamp
+
+    def set_device_offline(self, device: dict, *, timestamp=None) -> dict:
+        return self.inject_fault(device["device_id"], "node_offline", timestamp=timestamp)
+
+    def inject_signal_attenuation(self, device: dict, *, timestamp=None) -> dict:
+        return self.inject_fault(device["device_id"], "signal_attenuation", timestamp=timestamp)
 
     def sample(self, device: dict, telemetry: dict | None,
                gateway_status: str = "ONLINE", *, timestamp: datetime,

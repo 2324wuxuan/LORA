@@ -493,7 +493,8 @@ logs = faults.get_operation_logs()
 
 注入类型：`node_offline / signal_attenuation / high_packet_loss /
 sensor_abnormal / gateway_offline`。默认额外损耗 25 dB、额外丢包概率 40%、
-非法光照 -1 Lux；99999 Lux 在此标准下合法，不能用于非法值注入。
+非法光照默认 -1 Lux；99999 Lux 单独读数仍在合法范围内，但主动注入
+sensor_abnormal 时会明确标记传感器故障，并禁止该数据参与自动控制。
 额外丢包只会把原本成功的包变成丢包，不会让正常 LoRa 已丢失的包恢复。
 
 `acknowledge_alarm(alarm_id, description)` 确认告警，可记录分析原因；

@@ -63,6 +63,13 @@ def init_database() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_alarms_status ON alarms(status);
             CREATE INDEX IF NOT EXISTS idx_maintenance_device ON maintenance(device_id);
+            CREATE TABLE IF NOT EXISTS operation_logs (
+                log_id TEXT PRIMARY KEY NOT NULL, timestamp TEXT NOT NULL,
+                device_id TEXT NOT NULL, operation TEXT NOT NULL,
+                fault_type TEXT NOT NULL, severity TEXT NOT NULL,
+                result TEXT NOT NULL, description TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_operations_device ON operation_logs(device_id);
         """)
         # 对已有数据库进行增量迁移，保留照明状态、告警及维修记录。
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(devices)")}
@@ -116,6 +123,25 @@ def _seed_configured_devices(conn: sqlite3.Connection) -> None:
 
 
 init_db = init_database
+
+
+def save_operation_log(log: Mapping) -> None:
+    """带 log_id 的事件幂等写入，重复刷新不重复插入。"""
+    with _connection() as conn:
+        conn.execute("INSERT OR IGNORE INTO operation_logs VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                     (log.get("log_id") or str(uuid4()), _time(log.get("timestamp")),
+                      _required(log.get("device_id"), "device_id"),
+                      _required(log.get("operation"), "operation"), log.get("fault_type", "none"),
+                      log.get("severity", "INFO"), log.get("result", "SUCCESS"),
+                      log.get("description", "")))
+
+
+def get_operation_logs(device_id: str | None = None) -> list[dict]:
+    with _connection() as conn:
+        where = " WHERE device_id=?" if device_id is not None else ""
+        return [dict(row) for row in conn.execute(
+            "SELECT * FROM operation_logs" + where + " ORDER BY timestamp DESC, rowid DESC",
+            (device_id,) if device_id is not None else ())]
 
 
 def _time(value=None) -> str:

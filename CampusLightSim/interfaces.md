@@ -96,7 +96,14 @@ node.update_link(link)
 每条链路使用三维距离、对数路径损耗、节点建筑遮挡及确定性随机阴影模型。
 低于当前 SF 接收灵敏度的链路不可达，不使用固定覆盖半径。
 同节点/网关/时刻/种子产生相同随机结果，离线其他网关不改变剩余链路。
-先根据 RSSI 选路再取本次收包结果，不能通过挑选成功包虚增 PDR。
+LoRaWAN 上行可被多个网关同时接收；本项目以 RSSI 最大的可达在线链路作为
+页面和数据库中的“最佳接收网关”摘要，不表示终端预先绑定或执行蜂窝式切换。
+该摘要选择不参考本次收包结果，不能通过挑选成功包虚增 PDR。
+链路同时返回 `sensitivity_dbm / link_margin_db / radio_reachable / airtime_ms`；
+空中时间按 125 kHz、4/5 编码率和 20-byte 二进制遥测负载估算，`delay_ms`
+在此基础上增加简化的网络处理时间，不代表完整 LoRaWAN 往返时延。
+SNR 由 RSSI 与模拟噪声底计算，页面值限制在 SX127x PacketSnr 可报告范围；
+`raw_snr` 保留未限制的模型计算值供测试和分析。
 这是简化软件模型，没有模拟 LoRaWAN MAC、碰撞和真实建筑三维传播。
 
 故障流程使用 `FaultManager.sample_network(device, telemetry, timestamp=now,

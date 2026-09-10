@@ -7,10 +7,11 @@ from simulator.lora import calculate_link
 
 def select_gateway(device: dict, gateways: dict | None = None, *, timestamp=None,
                    seed=RANDOM_SEED, extra_loss_db=0.0, shadowing=True) -> dict:
-    """先计算全部链路，再选可达在线网关中 RSSI 最大者。
+    """计算所有接收链路，以可达在线链路中 RSSI 最大者作为展示摘要。
 
-    选择不参考本次随机收包结果，避免挑选成功包而人为抬高 PDR。
-    无可达网关时 gateway_id=None；仍保留所有候选链路供诊断。
+    LoRaWAN 上行并不先绑定一个网关，同一帧可被多个网关接收并交给网络服务器。
+    gateway_id 只是本简化平台用于状态展示/保存的最佳接收网关。选择不参考
+    本次随机收包结果，避免挑选成功包而人为抬高 PDR。无可达网关时为 None。
     """
     gateways = GATEWAYS if gateways is None else gateways
     device = {**DEVICES.get(device.get("device_id"), {}), **device}

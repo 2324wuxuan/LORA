@@ -589,17 +589,23 @@ LORA = {
     "frequency_mhz": 470.0,
     "bandwidth_khz": 125,
     "coding_rate": "4/5",
-    "sensitivity_dbm_by_sf": {7: -123, 8: -126, 9: -129, 10: -132, 11: -134, 12: -137},
+    # 空中时间按一个 20-byte 二进制遥测负载估算；并非把 JSON 文本原样发出。
+    "payload_bytes": 20,
+    "preamble_symbols": 8,
+    "explicit_header": True,
+    "crc_enabled": True,
+    "sensitivity_dbm_by_sf": {7: -123, 8: -126, 9: -129, 10: -132, 11: -134.5, 12: -137},
     "obstacle_loss_db": {"light_indoor": 8.0, "indoor_wall": 15.0, "outdoor_open": 2.0},
     "base_packet_loss_probability": 0.01,
     "additional_loss_threshold_db": 8.0,
+    # 简化的网关转发/网络处理时间；无线空中时间由 lora.py 按 SF/BW/CR 计算。
     "base_delay_ms": 100,
-    "delay_per_sf_ms": 30,
     "rssi_min_dbm": -130,
     "rssi_max_dbm": -40,
-    "snr_mean_db": 5.0,
-    "snr_std_db": 2.5,
     "noise_floor_dbm": -117.0,
+    # SX127x PacketSnr 为有符号 8-bit、每单位 0.25 dB；页面展示接收端可报告范围。
+    "reported_snr_min_db": -32.0,
+    "reported_snr_max_db": 31.75,
 }
 
 NBIOT = {

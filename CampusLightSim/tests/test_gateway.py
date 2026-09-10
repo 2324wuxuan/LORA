@@ -11,7 +11,7 @@ from database import db
 from simulator.device import VirtualLightingNode
 from simulator.fault import FaultManager
 from simulator.gateway import LoRaGateway, select_gateway
-from simulator.lora import calculate_link
+from simulator.lora import calculate_airtime_ms, calculate_link
 
 
 class GatewayTests(unittest.TestCase):
@@ -53,8 +53,17 @@ class GatewayTests(unittest.TestCase):
         faded = calculate_link(self.device, "GW-01", GATEWAYS["GW-01"],
                                shadowing=False, extra_loss_db=25)
         self.assertAlmostEqual(first["rssi"] - faded["rssi"], 25)
-        self.assertAlmostEqual(first["snr"] - faded["snr"], 25)
+        self.assertAlmostEqual(first["raw_snr"] - faded["raw_snr"], 25)
         self.assertIsNone(select_gateway(self.device, extra_loss_db=200)["gateway_id"])
+
+    def test_link_budget_and_airtime_fields(self):
+        link = calculate_link(self.device, "GW-01", GATEWAYS["GW-01"], shadowing=False)
+        self.assertAlmostEqual(link["link_margin_db"],
+                               link["rssi"] - link["sensitivity_dbm"])
+        self.assertEqual(link["radio_reachable"], link["link_margin_db"] >= 0)
+        airtimes = [calculate_airtime_ms(sf) for sf in range(7, 13)]
+        self.assertEqual(airtimes, sorted(airtimes))
+        self.assertGreater(airtimes[-1], airtimes[0])
 
     def test_fault_handover_does_not_close_failed_gateway_alarm(self):
         manager = FaultManager()

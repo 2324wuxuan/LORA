@@ -4,7 +4,7 @@
 不按固定覆盖半径判断可达性，不将 RSSI 裁剪到绘图范围。
 """
 from hashlib import sha256
-from math import dist, isfinite, log10
+from math import ceil, dist, isfinite, log10
 from random import Random
 
 from config import GATEWAY_RADIO, LORA, RANDOM_SEED
@@ -16,6 +16,44 @@ def link_distance(device: dict, gateway: dict) -> float:
     if not all(isfinite(value) for point in points for value in point):
         raise ValueError("链路坐标必须是有限数值")
     return dist(*points)
+
+
+def calculate_airtime_ms(sf: int, *, payload_bytes: int | None = None) -> float:
+    """估算一个 LoRa 上行包的空中时间（显式头、可配 CRC/前导码）。
+
+    使用 Semtech LoRa 调制的符号时间及 payload symbol 公式。这里只计算
+    无线包的 time-on-air，不模拟 LoRaWAN 接收窗口、排队和 IP 回传。
+    """
+    if sf not in range(7, 13):
+        raise ValueError("SF 必须为 7~12")
+    payload = LORA["payload_bytes"] if payload_bytes is None else payload_bytes
+    if not isinstance(payload, int) or isinstance(payload, bool) or payload < 0:
+        raise ValueError("payload_bytes 必须是非负整数")
+    bandwidth_hz = float(LORA["bandwidth_khz"]) * 1000
+    if bandwidth_hz <= 0:
+        raise ValueError("LoRa 带宽必须大于 0")
+    try:
+        numerator_cr, denominator = (
+            int(value) for value in str(LORA["coding_rate"]).split("/")
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("coding_rate 必须类似 4/5、4/6、4/7 或 4/8") from exc
+    coding_rate_index = denominator - 4
+    if numerator_cr != 4 or coding_rate_index not in range(1, 5):
+        raise ValueError("coding_rate 必须为 4/5、4/6、4/7 或 4/8")
+
+    symbol_seconds = 2**sf / bandwidth_hz
+    low_data_rate_optimization = int(symbol_seconds >= 0.016)
+    implicit_header = int(not LORA["explicit_header"])
+    crc = int(bool(LORA["crc_enabled"]))
+    numerator = 8 * payload - 4 * sf + 28 + 16 * crc - 20 * implicit_header
+    payload_symbols = 8 + max(
+        ceil(numerator / (4 * (sf - 2 * low_data_rate_optimization)))
+        * (coding_rate_index + 4),
+        0,
+    )
+    preamble_symbols = float(LORA["preamble_symbols"]) + 4.25
+    return (preamble_symbols + payload_symbols) * symbol_seconds * 1000
 
 
 def simulate_lora(distance_m: float, sf: int, obstacle: str,
@@ -39,17 +77,26 @@ def simulate_lora(distance_m: float, sf: int, obstacle: str,
     if shadowing:
         loss += rng.gauss(0, radio["default_shadowing_std_db"])
     rssi = tx_power_dbm + radio["antenna_gain_dbi"] - loss
-    margin = rssi - LORA["sensitivity_dbm_by_sf"][sf]
+    sensitivity = float(LORA["sensitivity_dbm_by_sf"][sf])
+    margin = rssi - sensitivity
+    raw_snr = rssi - LORA["noise_floor_dbm"]
+    reported_snr = min(
+        LORA["reported_snr_max_db"],
+        max(LORA["reported_snr_min_db"], raw_snr),
+    )
     # 简化的接收曲线：灵敏度以下不接收，余量不足时逐步提高丢包概率。
     loss_probability = 1.0 if margin < 0 else min(
         1.0, LORA["base_packet_loss_probability"]
         + max(0.0, 1 - margin / LORA["additional_loss_threshold_db"]) * 0.8)
+    airtime_ms = calculate_airtime_ms(sf)
     return {"distance_m": distance_m, "rssi": rssi,
-            "snr": rssi - LORA["noise_floor_dbm"],
+            "snr": reported_snr, "raw_snr": raw_snr,
+            "sensitivity_dbm": sensitivity, "link_margin_db": margin,
             "packet_loss_probability": loss_probability,
             "packet_success": rng.random() >= loss_probability,
-            "reachable": margin >= 0,
-            "delay_ms": LORA["base_delay_ms"] + (sf - 7) * LORA["delay_per_sf_ms"]}
+            "radio_reachable": margin >= 0, "reachable": margin >= 0,
+            "airtime_ms": airtime_ms,
+            "delay_ms": LORA["base_delay_ms"] + airtime_ms}
 
 
 def calculate_link(device: dict, gateway_id: str, gateway: dict, *,
@@ -65,5 +112,5 @@ def calculate_link(device: dict, gateway_id: str, gateway: dict, *,
     online = gateway.get("status", "ONLINE") == "ONLINE"
     result.update(gateway_id=gateway_id, online=online,
                   packet_success=online and result["packet_success"],
-                  reachable=online and result["reachable"])
+                  reachable=online and result["radio_reachable"])
     return result

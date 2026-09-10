@@ -63,8 +63,12 @@ class AppTests(unittest.TestCase):
         self.assertEqual(topology.count('data-device-id='), len(DEVICES))
         app.multiselect[0].set_value(["GW-01", "GW-02", "GW-03"]).run(timeout=20)
         self.assertFalse(app.exception)
-        self.assertEqual(app.metric[1].value, "无可达网关")
-        self.assertTrue((app.dataframe[1].value["场景网关"] == "无可达网关").all())
+        scenario_metric = next(
+            metric for metric in app.metric
+            if metric.label == "对照场景最佳接收网关"
+        )
+        self.assertEqual(scenario_metric.value, "无可达网关")
+        self.assertTrue((app.dataframe[1].value["场景最佳接收"] == "无可达网关").all())
 
     def test_lighting_page_supports_all_representative_devices(self):
         app = AppTest.from_file(str(LIGHTING_PAGE)).run(timeout=20)

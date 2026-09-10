@@ -13,6 +13,7 @@ from config import DEVICES
 APP = Path(__file__).resolve().parents[1] / "app.py"
 DEVICE_PAGE = APP.parent / "pages" / "02_区域与设备.py"
 LIGHTING_PAGE = APP.parent / "pages" / "03_智能照明.py"
+QUALITY_PAGE = APP.parent / "pages" / "09_实验与测试.py"
 
 
 class AppTests(unittest.TestCase):
@@ -79,6 +80,17 @@ class AppTests(unittest.TestCase):
         app.selectbox[0].select("CL-N10").run(timeout=20)
         self.assertFalse(app.exception)
         self.assertTrue(any("仿真估算" in item.value for item in app.caption))
+
+    def test_quality_page_runs_documented_cases(self):
+        app = AppTest.from_file(str(QUALITY_PAGE)).run(timeout=20)
+        self.assertFalse(app.exception)
+        self.assertIn("实验与测试", app.title[0].value)
+        app.button[0].click().run(timeout=20)
+        self.assertFalse(app.exception)
+        self.assertEqual(app.metric[0].value, "7")
+        self.assertEqual(app.metric[1].value, "7")
+        self.assertEqual(app.metric[2].value, "0")
+        self.assertEqual(len(app.dataframe[0].value), 7)
 
     def test_invalid_config_stops_initialization(self):
         with patch("config.validate_config", return_value=(False, ["测试配置错误"])):

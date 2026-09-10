@@ -6,7 +6,6 @@
 
 from copy import deepcopy
 from datetime import datetime
-from functools import partial
 from importlib import import_module
 from importlib.util import find_spec
 
@@ -161,11 +160,9 @@ def main() -> None:
     pages.append(
         st.Page("pages/05_远程控制.py", title="远程控制", icon="🎛️", url_path="control")
     )
-    for title, path, description in [
-        ("实验测试", "experiments", "运行仿真场景，检查系统功能。"),
-    ]:
-        pages.append(st.Page(partial(render_pending, title, description),
-                             title=title, url_path=path))
+    pages.append(
+        st.Page("pages/09_实验与测试.py", title="实验测试", icon="🧪", url_path="experiments")
+    )
     page = st.navigation(pages)
     with st.sidebar:
         st.caption(APP_SUBTITLE)

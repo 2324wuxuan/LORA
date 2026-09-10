@@ -16,7 +16,7 @@ from random import Random
 from uuid import uuid4
 
 from config import (
-    DEFAULT_GATEWAY_ID, DEVICES, FAULTS, FAULT_SIMULATION, RANDOM_SEED, TELEMETRY,
+    DEFAULT_GATEWAY_ID, DEVICES, GATEWAYS, FAULTS, FAULT_SIMULATION, RANDOM_SEED, TELEMETRY,
 )
 
 
@@ -45,7 +45,7 @@ def _online(device: dict) -> bool:
 
 
 def check_fault(device: dict, telemetry: dict | None,
-                gateway_status: str = "ONLINE") -> list[dict]:
+                gateway_status: str = "ONLINE", *, gateway_id=DEFAULT_GATEWAY_ID) -> list[dict]:
     """检测当前快照，返回 OPEN Alarm；不维护历史、不修改输入。
 
     PDR 使用 0~1 比例；未提供时不猜测。连续无数据周期由调用方通过
@@ -70,7 +70,7 @@ def check_fault(device: dict, telemetry: dict | None,
     if not online or device.get("missed_cycles", 0) >= TELEMETRY["offline_after_failed_uploads"]:
         add("node_offline", "节点离线或连续三个采样周期无有效数据")
     if gateway_status != "ONLINE":
-        add("gateway_offline", "网关离线，节点无法正常上传", DEFAULT_GATEWAY_ID)
+        add("gateway_offline", "网关离线，需检查备用链路", gateway_id)
     if online and gateway_status == "ONLINE" and data.get("packet_success") is True:
         if not is_valid_lux(data.get("lux")):
             add("sensor_abnormal", "光照数据非法，禁止参与自动照明决策")
@@ -102,6 +102,7 @@ class FaultManager:
     """
 
     def __init__(self, seed: int = RANDOM_SEED):
+        self._seed = seed
         self._rng = Random(seed)
         self._faults = defaultdict(dict)
         self._packets = defaultdict(lambda: deque(maxlen=FAULT_SIMULATION["pdr_window_size"]))
@@ -114,7 +115,7 @@ class FaultManager:
         self._pending = {}
 
     def _target(self, device_id):
-        if device_id not in DEVICES and device_id != DEFAULT_GATEWAY_ID:
+        if device_id not in DEVICES and device_id not in GATEWAYS:
             raise KeyError(f"未知设备：{device_id}")
 
     def _log(self, device_id, operation, fault_type, severity, result, description, timestamp):
@@ -130,7 +131,7 @@ class FaultManager:
         self._target(device_id)
         if fault_type not in INJECTABLE:
             raise ValueError(f"不支持的注入类型：{fault_type}")
-        if (device_id == DEFAULT_GATEWAY_ID) != (fault_type == "gateway_offline"):
+        if (device_id in GATEWAYS) != (fault_type == "gateway_offline"):
             raise ValueError("网关只支持 gateway_offline，节点不支持该类型")
         defaults = {"signal_attenuation": FAULT_SIMULATION["extra_loss_db"],
                     "high_packet_loss": FAULT_SIMULATION["packet_loss_probability"],
@@ -176,7 +177,8 @@ class FaultManager:
 
     def sample(self, device: dict, telemetry: dict | None,
                gateway_status: str = "ONLINE", *, timestamp: datetime,
-               auto_control_ok: bool = False) -> dict:
+               auto_control_ok: bool = False, gateway_id=DEFAULT_GATEWAY_ID,
+               link_adjusted: bool = False) -> dict:
         """叠加异常、统计上传、更新告警，返回供引擎和数据库使用的快照。
 
         telemetry 为本周期原始正常 LoRa 结果（不得重复传入本方法的输出）。
@@ -186,7 +188,7 @@ class FaultManager:
         """
         device_id = device["device_id"]
         self._target(device_id)
-        if device_id == DEFAULT_GATEWAY_ID:
+        if device_id in GATEWAYS:
             raise ValueError("sample 接收照明节点，网关状态通过 gateway_status 提供")
         if not isinstance(timestamp, datetime):
             raise TypeError("timestamp 必须是 datetime")
@@ -202,10 +204,12 @@ class FaultManager:
         node["online"] = _online(device) and "node_offline" not in faults
         node["status"] = "ONLINE" if node["online"] else "OFFLINE"
         node["faults"] = deepcopy(faults)
-        gateway_online = gateway_status == "ONLINE" and not self._faults[DEFAULT_GATEWAY_ID]
+        gateway_online = gateway_status == "ONLINE" and not self._faults.get(gateway_id)
+        node["gateway_id"] = gateway_id
         data = self.apply_sensor(device_id, telemetry or {})
         data.update(timestamp=timestamp, device_id=device_id)
-        if "signal_attenuation" in faults and _number(data.get("rssi")):
+        data["gateway_id"] = gateway_id
+        if not link_adjusted and "signal_attenuation" in faults and _number(data.get("rssi")):
             data["rssi"] -= faults["signal_attenuation"]
         success = (bool(telemetry) and node["online"] and gateway_online
                    and data.get("packet_success") is True)
@@ -223,7 +227,7 @@ class FaultManager:
             self._latest[device_id] = deepcopy(data)
         # 保留真实在线标志供检测区分“无有效数据”与主动离线。
         detected = check_fault({**node, "status": "ONLINE" if node["online"] else "OFFLINE"},
-                               data, "ONLINE" if gateway_online else "OFFLINE")
+                               data, "ONLINE" if gateway_online else "OFFLINE", gateway_id=gateway_id)
         for alarm in detected:
             key = (alarm["device_id"], alarm["alarm_type"])
             if key not in self._alarms or self._alarms[key]["status"] == "CLOSED":
@@ -237,10 +241,51 @@ class FaultManager:
         if healthy:
             self._confirm_recovery(device_id, timestamp)
             # 网关恢复至少需要一次实际成功的节点上传作为验证。
-            self._confirm_recovery(DEFAULT_GATEWAY_ID, timestamp)
+            if gateway_id is not None:
+                self._confirm_recovery(gateway_id, timestamp)
         return deepcopy(dict(device=node, telemetry=data, accept_telemetry=valid,
                              latest_telemetry=self._latest.get(device_id),
                              recovered=healthy, alarms=self.get_alarms()))
+
+    def sample_network(self, device: dict, telemetry: dict | None, *, timestamp: datetime,
+                       gateways: dict | None = None, auto_control_ok=False) -> dict:
+        """三网关入口：环境/灯具遥测 → 叠加故障 → 动态选路 → 状态检测。
+
+        正常链路由 gateway/lora 计算；本方法仅提供注入损耗及网关离线状态。
+        网关恢复必须经该网关重新上传验证，备用网关成功不会关闭故障网关告警。
+        """
+        from simulator.gateway import select_gateway
+
+        device_id = device["device_id"]
+        self._target(device_id)
+        if device_id in self._last_time and timestamp <= self._last_time[device_id]:
+            raise ValueError("每个节点的采样时间必须严格递增")
+        effective = deepcopy(GATEWAYS if gateways is None else gateways)
+        for key, gateway in effective.items():
+            self._target(key)
+            if "gateway_offline" in self._faults[key]:
+                gateway["status"] = "OFFLINE"
+        link = select_gateway({**DEVICES[device_id], **device}, effective, timestamp=timestamp,
+                              seed=self._seed,
+                              extra_loss_db=self._faults[device_id].get("signal_attenuation", 0))
+        result = self.sample(device, {**telemetry, **link} if telemetry is not None else None,
+                             timestamp=timestamp, auto_control_ok=auto_control_ok,
+                             gateway_id=link["gateway_id"], link_adjusted=True)
+        for key, gateway in effective.items():
+            if gateway["status"] == "ONLINE":
+                continue
+            alarm_key = (key, "gateway_offline")
+            existing = self._alarms.get(alarm_key)
+            if existing is None or existing["status"] == "CLOSED":
+                if existing is not None:
+                    self._alarm_history.append(deepcopy(existing))
+                for alarm in check_fault({"device_id": device_id}, {"timestamp": timestamp},
+                                         "OFFLINE", gateway_id=key):
+                    if alarm["alarm_type"] == "gateway_offline":
+                        self._alarms[alarm_key] = alarm
+        result["alarms"] = self.get_alarms()
+        result["gateway_links"] = link["gateway_links"]
+        return result
 
     def _confirm_recovery(self, device_id, timestamp):
         if device_id in self._pending and timestamp <= self._pending[device_id]:

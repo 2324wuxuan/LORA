@@ -64,7 +64,19 @@ def init_database() -> None:
             CREATE INDEX IF NOT EXISTS idx_alarms_status ON alarms(status);
             CREATE INDEX IF NOT EXISTS idx_maintenance_device ON maintenance(device_id);
         """)
+        # 对已有数据库进行增量迁移，保留照明状态、告警及维修记录。
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(devices)")}
+        for name, kind in (("gateway_id", "TEXT"), ("height", "REAL")):
+            if name not in columns:
+                conn.execute(f"ALTER TABLE devices ADD COLUMN {name} {kind}")
+        if "gateway_id" not in columns:
+            # 旧 distance 指向已撤销的中心网关，不能作为新三网关链路距离。
+            conn.execute("UPDATE devices SET distance=NULL")
         _seed_configured_devices(conn)
+        for device_id, config in DEVICES.items():
+            conn.execute("UPDATE devices SET x=COALESCE(x, ?), y=COALESCE(y, ?), "
+                         "height=COALESCE(height, ?) WHERE device_id=?",
+                         (config["x"], config["y"], config["height"], device_id))
 
 
 def _seed_configured_devices(conn: sqlite3.Connection) -> None:
@@ -81,7 +93,7 @@ def _seed_configured_devices(conn: sqlite3.Connection) -> None:
             config.get("device_name", device_id),
             zone_name,
             zone_name,
-            float(config["distance_to_gateway_m"]),
+            None,
             int(config["lora_sf"]),
             rated_power,
             int(brightness > 0),
@@ -119,6 +131,7 @@ def _required(value: str, name: str) -> str:
 
 
 _DEVICE_FIELDS = (
+    "gateway_id", "height",
     "device_id", "name", "zone", "area", "x", "y", "distance", "sf",
     "rated_power", "lamp_state", "mode", "lux", "occupancy", "online",
     "brightness", "power", "rssi", "snr", "packet_loss", "fault", "fault_type",

@@ -50,6 +50,22 @@ class AppTests(unittest.TestCase):
         self.assertIn("区域与设备", app.title[0].value)
         self.assertTrue(any("校园总体规划地图" in item.value for item in app.subheader))
 
+    def test_three_gateway_network_page(self):
+        app = AppTest.from_file(str(APP.parent / "pages" / "04_LoRa网络.py")).run(timeout=20)
+        self.assertFalse(app.exception)
+        topology = next(item.value for item in app.markdown if '<svg' in item.value)
+        for device_id in DEVICES:
+            self.assertIn(f'data-device-id="{device_id}"', topology)
+        self.assertEqual(len(app.dataframe[1].value), len(DEVICES))
+        app.selectbox[0].select("CL-N10").run(timeout=20)
+        self.assertFalse(app.exception)
+        topology = next(item.value for item in app.markdown if '<svg' in item.value)
+        self.assertEqual(topology.count('data-device-id='), len(DEVICES))
+        app.multiselect[0].set_value(["GW-01", "GW-02", "GW-03"]).run(timeout=20)
+        self.assertFalse(app.exception)
+        self.assertEqual(app.metric[1].value, "无可达网关")
+        self.assertTrue((app.dataframe[1].value["场景网关"] == "无可达网关").all())
+
     def test_lighting_page_supports_all_representative_devices(self):
         app = AppTest.from_file(str(LIGHTING_PAGE)).run(timeout=20)
         self.assertFalse(app.exception)

@@ -62,7 +62,54 @@ alarms / operation_logs
 | CL-N09 | Z09 | 120W | 520m | 12 | LoRaWAN + NB-IoT补充 |
 | CL-N10 | Z10 | 80W | 450m | 12 | LoRaWAN |
 
-`GW-01` 为 LoRa 网关。
+`GW-01 / GW-02 / GW-03` 为三个 LoRa 网关。上表固定距离仅保留为旧单网关
+实验参考值，新通信链路不使用该字段，改由节点与各网关三维坐标计算。
+
+### 三网关版本（2026-09-10）
+
+保持现有 PA01–PA08 八个片区、Z01–Z10 十个代表区域及其归属不变。
+校园仿真坐标范围 500 × 750 m，西北角为 (0, 0)，x 向东、y 向南。
+原校园底图保留；新坐标示意不表示已完成底图地理配准。
+
+| 网关 | 位置 | (x, y, height)，单位 m |
+|---|---|---|
+| GW-01 | 图书馆楼顶 | (250, 220, 25) |
+| GW-02 | 教三楼附近高点/楼顶 | (145, 520, 22) |
+| GW-03 | 可靠网络通信协同创新中心楼顶 | (355, 520, 25) |
+
+`AREA_GATEWAY_PLAN` 保存用户指定的片区主备规划，不作为选路白名单。
+`DEVICE_POSITIONS` 是新增代表节点位置估算，不改变既有片区规划。
+PA07 可用同一代表节点的不同坐标测试北门、西门、东门链路，无需新增区域。
+
+```python
+from simulator.gateway import select_gateway
+from simulator.device import VirtualLightingNode
+
+node = VirtualLightingNode.from_config("CL-N05")
+link = select_gateway(node.to_dict(), gateways, timestamp=now)
+node.update_link(link)
+# link['gateway_links'] 含每个网关的距离、RSSI、SNR、丢包概率和收包结果。
+# link['gateway_id'] 是当前最优可达在线网关，无可达网关时为 None。
+# 数据库 save_device(node) 保存 gateway_id 和当前选中链路 distance。
+```
+
+每条链路使用三维距离、对数路径损耗、节点建筑遮挡及确定性随机阴影模型。
+低于当前 SF 接收灵敏度的链路不可达，不使用固定覆盖半径。
+同节点/网关/时刻/种子产生相同随机结果，离线其他网关不改变剩余链路。
+先根据 RSSI 选路再取本次收包结果，不能通过挑选成功包虚增 PDR。
+这是简化软件模型，没有模拟 LoRaWAN MAC、碰撞和真实建筑三维传播。
+
+故障流程使用 `FaultManager.sample_network(device, telemetry, timestamp=now,
+gateways=gateways, auto_control_ok=...)`。此处 telemetry 是环境及灯具本周期
+数据，正常 LoRa 计算由该入口委托给 gateway/lora；不要提前叠加信号损耗。
+网关离线影响该网关链路，终端自动切换；全不可达时连续三个无效周期产生
+节点离线告警。网关恢复须经该网关重新成功上传并满足恢复条件，备用网关
+成功不能关闭其他网关告警。旧 `sample` / `check_fault` 单链路入口保留，
+新增关键字 `gateway_id` 指定检测对象，其缺省 GW-01 仅用于兼容旧调用。
+
+数据库 `init_db` 增量增加设备的 `gateway_id / height` 字段，补齐缺失坐标，
+首次迁移清除失效的旧中心网关距离，保留其他设备运行状态及告警、维修记录。
+新设备未选路时 `gateway_id / distance` 为 NULL。
 
 > 一期参数为仿真设计值；Z04~Z10 的距离、功率、SF、光照系数和人员时段为
 > 基于校园地图与场景类型的“仿真估算”，均不是北邮现场实测数据。

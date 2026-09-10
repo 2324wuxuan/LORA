@@ -155,8 +155,11 @@ def main() -> None:
         st.Page("pages/04_LoRa网络.py", title="LoRa网络", icon="📡", url_path="lora"),
         st.Page("pages/06_能耗分析.py", title="能耗分析", icon="🔋", url_path="energy"),
     ]
+    # 远程控制使用独立页面；其他尚未实现模块继续保持原有占位逻辑。
+    pages.append(
+        st.Page("pages/05_远程控制.py", title="远程控制", icon="🎛️", url_path="control")
+    )
     for title, path, description in [
-        ("远程控制", "control", "向照明节点发送手动控制指令。"),
         ("故障告警", "faults", "注入故障、确认告警并验证设备恢复。"),
         ("运维记录", "operations", "追踪操作结果和故障处理过程。"),
         ("实验测试", "experiments", "运行仿真场景，检查系统功能。"),

@@ -30,7 +30,8 @@ class AppTests(unittest.TestCase):
         self.assertTrue(app.session_state.devices_initialized)
         self.assertFalse(app.session_state.simulation_running)
         self.assertTrue(app.session_state.database_initialized)
-        self.assertFalse(app.session_state.engine_ready)
+        self.assertTrue(app.session_state.engine_ready)
+        self.assertTrue(callable(app.session_state.engine_runner))
         manager = app.session_state.fault_manager
         timestamp = datetime(2026, 9, 9, 12)
         app.session_state.simulation_time = timestamp

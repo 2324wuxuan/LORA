@@ -15,7 +15,6 @@ from config import (
     CAMPUS_NAME,
     CAMPUS_MAP,
     CAMPUS_PLANNING_AREAS,
-    DEFAULT_GATEWAY_ID,
     DEVICES,
     GATEWAYS,
     LIGHTING_RULES,
@@ -105,9 +104,8 @@ def _lux_chart_svg(series: dict[str, list[float]]) -> str:
 st.title("🏫 区域与设备规划")
 st.caption(f"研究范围：{SCHOOL_NAME}{CAMPUS_NAME} · {RESEARCH_AREA}")
 st.info(
-    "规划已由主楼试点扩展到本部校区教学、科研、生活、体育和道路区域。"
-    "二、三期每个片区现已接入一个代表仿真节点；所有新增参数均明确标为“仿真估算”，"
-    "用于先行运行 Lux、Occupancy、智能照明和能耗仿真，不代表现场实测或最终施工配置。"
+    "八个片区的十个代表节点共同参与当前仿真，没有先后阶段。所有节点参数统一标为“仿真估算”，"
+    "用于运行 Lux、Occupancy、智能照明和能耗仿真，不代表现场实测或最终施工配置。"
 )
 
 
@@ -135,10 +133,8 @@ for area_id, area in CAMPUS_PLANNING_AREAS.items():
         {
             "片区": f"{area_id} {area['name']}",
             "地图地标": "、".join(area["landmarks"]),
-            "阶段": area["phase"],
-            "优先级": area["priority"],
             "状态": area["status"],
-            "参数性质": "仿真估算" if "仿真估算" in area["parameter_source"] else "一期仿真设计",
+            "参数性质": "仿真估算" if "仿真估算" in area["parameter_source"] else "仿真估算",
             "代表节点": area["simulation_nodes"],
             "建议节点": area["recommended_nodes"],
         }
@@ -179,21 +175,25 @@ for zone_id, zone in ZONES.items():
             "照明节点": device_id,
             "场景": zone["short_name"],
             "额定功率": f"{device.get('rated_power_w', 0):g} W",
-            "网关距离": f"{device.get('distance_to_gateway_m', 0):g} m",
+            "估算坐标 (m)": f"({device['x']:g}, {device['y']:g})",
             "LoRa SF": device.get("lora_sf", "—"),
             "控制方式": zone["control_mode"],
-            "参数性质": "仿真估算" if "仿真估算" in zone["parameter_source"] else "一期设计",
+            "参数性质": "仿真估算" if "仿真估算" in zone["parameter_source"] else "仿真估算",
         }
     )
 
 st.markdown(_markdown_table(zone_rows))
 
-gateway = GATEWAYS[DEFAULT_GATEWAY_ID]
 gateway_col, node_col, step_col = st.columns(3)
-gateway_col.metric("虚拟网关", DEFAULT_GATEWAY_ID)
+gateway_col.metric("虚拟网关", len(GATEWAYS))
 node_col.metric("照明控制节点", len(DEVICES))
 step_col.metric("环境采样步长", f"{SIMULATION_STEP_MINUTES} 分钟")
-st.caption(f"{gateway['name']} · 部署位置：{gateway['location']}")
+st.caption("500 × 750 m 校园 · 西北角为原点，x 向东、y 向南 · 三网关动态选路")
+st.markdown(_markdown_table([
+    {"网关": key, "名称": gateway["name"], "位置": gateway["location"],
+     "坐标 (m)": f"({gateway['x']:g}, {gateway['y']:g})", "高度 (m)": gateway["height"]}
+    for key, gateway in GATEWAYS.items()
+]))
 
 
 st.divider()
@@ -274,7 +274,7 @@ for area_id, area in CAMPUS_PLANNING_AREAS.items():
             "传统 (kWh)": f"{traditional:.3f}",
             "智能 (kWh)": f"{smart:.3f}",
             "节能率": f"{calculate_saving_rate(traditional, smart):.1f}%",
-            "口径": "仿真估算" if "仿真估算" in area["parameter_source"] else "一期设计",
+            "口径": "仿真估算" if "仿真估算" in area["parameter_source"] else "仿真估算",
         }
     )
 st.markdown(_markdown_table(energy_rows))
@@ -291,21 +291,23 @@ for device_id, device in DEVICES.items():
             "设备名称": device["device_name"],
             "区域": f"{device['zone_id']} {zone['name']}",
             "位置": zone["location"],
-            "网关": DEFAULT_GATEWAY_ID,
-            "距离 (m)": device["distance_to_gateway_m"],
+            "网关": "每周期动态选择最优链路",
+            "估算坐标 (m)": f"({device['x']:g}, {device['y']:g})",
             "额定功率 (W)": device["rated_power_w"],
             "SF": device["lora_sf"],
             "主网络": device["primary_network"],
             "补充网络": device.get("backup_network") or "—",
-            "参数性质": "仿真估算" if "仿真估算" in device["parameter_source"] else "一期设计",
+            "参数性质": "仿真估算" if "仿真估算" in device["parameter_source"] else "仿真估算",
         }
     )
 st.markdown(_markdown_table(deployment_rows))
 
 with st.expander("参数口径说明"):
     st.markdown(
-        "- 一期和二、三期的距离、功率、SF、光照系数及人员时段均不是现场实测值。\n"
-        "- 二、三期配置明确标注为“仿真估算”，依据校园地图相对位置和教室、阅览区、体育场、宿舍走廊、科研公共区、道路等场景类型给出。\n"
+        "- 三网关形成三角布局；主备网关表是规划说明，不限制运行时选路。\n"
+        "- 节点坐标是新增仿真估算，片区归属保持不变；链路距离由节点与网关坐标计算。\n"
+        "- 所有节点的距离、功率、SF、光照系数及人员时段均不是现场实测值。\n"
+        "- 所有节点配置明确标注为“仿真估算”，依据校园地图相对位置和教室、阅览区、体育场、宿舍走廊、科研公共区、道路等场景类型给出。\n"
         "- 69 个建议节点表示后续部署量；当前只有 10 个代表节点参加逐点仿真，不能直接外推为全校真实能耗。\n"
         "- 校园地图作为规划底图保存在项目 `assets` 目录，网页不依赖外部图片链接。\n"
         "- 光照曲线、室内衰减系数、人员概率和采样间隔统一维护在 `config.py`。\n"

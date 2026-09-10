@@ -47,6 +47,14 @@ def initialize_session() -> None:
     st.session_state.devices_initialized = True
     if "gateways" not in st.session_state:
         st.session_state.gateways = deepcopy(GATEWAYS)
+    else:
+        for gateway_id, config in GATEWAYS.items():
+            current = st.session_state.gateways.get(gateway_id, {})
+            st.session_state.gateways[gateway_id] = {
+                **deepcopy(config), "status": current.get("status", config["status"])}
+    for device_id, device in st.session_state.devices.items():
+        for key in ("x", "y", "height", "position_source"):
+            device.setdefault(key, DEVICES[device_id][key])
     if "fault_manager" not in st.session_state:
         st.session_state.fault_manager = FaultManager()
 
@@ -73,6 +81,7 @@ def render_home() -> None:
     st.title(f"{APP_ICON} {APP_TITLE}")
     st.markdown(f"### {APP_SUBTITLE}")
     st.caption(f"{PROJECT_TITLE} · {RESEARCH_AREA}")
+    st.caption("500 × 750 m 校园 · 八个规划片区 · 三个 LoRa 网关形成三角布局，终端动态选路")
 
     status, mode, clock = st.columns(3)
     status.metric("系统当前状态", "仿真运行中" if st.session_state.simulation_running else "待机")
@@ -92,8 +101,8 @@ def render_home() -> None:
     st.write("数据库：" + ("已初始化" if st.session_state.database_initialized else "待接入"))
     st.write("仿真引擎：" + ("已接入" if st.session_state.engine_ready else "待接入"))
     st.info(
-        "当前可查看校园地图、全校分期规划，以及一期至三期代表节点的 Lux、Occupancy、"
-        "智能照明和能耗仿真。二、三期参数均为仿真估算，仍需现场校准。"
+        "当前可查看校园地图、全校统一规划，以及全部代表节点的 Lux、Occupancy、"
+        "智能照明和能耗仿真。所有节点参数均为仿真估算，仍需现场校准。"
     )
 
     st.subheader("项目功能")
@@ -143,9 +152,9 @@ def main() -> None:
         st.Page(render_home, title="系统总览", icon="🏠", default=True),
         st.Page("pages/02_区域与设备.py", title="区域与设备", icon="🏫", url_path="devices"),
         st.Page("pages/03_智能照明.py", title="智能照明", icon="💡", url_path="lighting"),
+        st.Page("pages/04_LoRa网络.py", title="LoRa网络", icon="📡", url_path="lora"),
     ]
     for title, path, description in [
-        ("LoRa网络", "lora", "查看 RSSI、SNR、丢包及网关通信情况。"),
         ("远程控制", "control", "向照明节点发送手动控制指令。"),
         ("能耗分析", "energy", "查看累计能耗和节能效果。"),
         ("故障告警", "faults", "注入故障、确认告警并验证设备恢复。"),

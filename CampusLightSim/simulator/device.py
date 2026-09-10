@@ -32,7 +32,7 @@ class VirtualLightingNode:
         device_id: str,
         name: str,
         zone: str,
-        distance: float,
+        distance: float | None,
         sf: int,
         rated_power: float,
         *,
@@ -42,6 +42,9 @@ class VirtualLightingNode:
         online: bool = True,
         lux: float = 0.0,
         occupancy: bool = False,
+        x: float | None = None,
+        y: float | None = None,
+        height: float | None = None,
     ) -> None:
         if not device_id:
             raise ValueError("device_id 不能为空")
@@ -49,7 +52,7 @@ class VirtualLightingNode:
             raise ValueError("name 不能为空")
         if not zone:
             raise ValueError("zone 不能为空")
-        if distance <= 0:
+        if distance is not None and distance <= 0:
             raise ValueError("distance 必须大于 0")
         if int(sf) not in range(7, 13):
             raise ValueError("sf 必须为 7~12")
@@ -60,7 +63,9 @@ class VirtualLightingNode:
         self.device_id = device_id
         self.name = name
         self.zone = zone
-        self.distance = float(distance)
+        self.distance = float(distance) if distance is not None else None
+        self.x, self.y, self.height = x, y, height
+        self.gateway_id = None  # 每次上传后写入选路结果，不固定归属。
         self.sf = int(sf)
         self.rated_power = float(rated_power)
 
@@ -92,7 +97,8 @@ class VirtualLightingNode:
             device_id=device_id,
             name=device_cfg.get("device_name", device_id),
             zone=zone_cfg.get("name", device_cfg["zone_id"]),
-            distance=device_cfg["distance_to_gateway_m"],
+            distance=None,
+            x=device_cfg["x"], y=device_cfg["y"], height=device_cfg["height"],
             sf=device_cfg["lora_sf"],
             rated_power=device_cfg["rated_power_w"],
             mode=device_cfg.get("initial_mode", _DEFAULT_MODE),
@@ -107,6 +113,11 @@ class VirtualLightingNode:
             raise ValueError("lux 不能小于 0")
         self.lux = float(lux)
         self.occupancy = bool(occupancy)
+
+    def update_link(self, result: dict) -> None:
+        """接收 gateway.select_gateway 的选路结果；无可达网关时清除旧关联。"""
+        self.gateway_id = result["gateway_id"]
+        self.distance = result.get("distance_m") if self.gateway_id is not None else None
 
     def set_brightness(self, value: float) -> None:
         """设置目标亮度（0~100），并同步刷新功率。
@@ -152,6 +163,8 @@ class VirtualLightingNode:
         """导出当前状态快照，便于 db.save_device() 或调试查看。"""
         return {
             "device_id": self.device_id,
+            "x": self.x, "y": self.y, "height": self.height,
+            "gateway_id": self.gateway_id,
             "name": self.name,
             "zone": self.zone,
             "distance": self.distance,

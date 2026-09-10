@@ -4,11 +4,14 @@ Research area: Beijing University of Posts and Telecommunications (BUPT),
 main campus teaching, research, residential, sports and road lighting areas.
 
 The values below are simulation/design parameters unless explicitly replaced
-by field measurements. Z01/Z02/Z03 remain the first-stage simulation pilot;
-phase-two and phase-three representative zones are explicitly labelled as
-simulation estimates derived from the campus map and scene type.
+by field measurements. All ten representative nodes across eight planning
+areas participate equally in the current simulation, without rollout phases.
 """
 from pathlib import Path
+from math import isfinite
+
+CAMPUS_COORDINATES = {"width_m": 500, "height_m": 750,
+                      "origin": "西北角", "x_direction": "东", "y_direction": "南"}
 
 PROJECT_NAME = "CampusLightSim"
 PROJECT_TITLE = "北邮本部校区智能照明 LoRa 云运维仿真平台"
@@ -24,7 +27,7 @@ SIMULATION_STEP_MINUTES = 5
 SIMULATION_POINTS_PER_DAY = 24 * 60 // SIMULATION_STEP_MINUTES
 RANDOM_SEED = 20260908
 SIMULATION_ESTIMATE_LABEL = "仿真估算（基于校园地图与场景类型，待现场实测校准）"
-PHASE_ONE_PARAMETER_LABEL = "一期仿真设计参数（非现场实测）"
+PHASE_ONE_PARAMETER_LABEL = SIMULATION_ESTIMATE_LABEL  # 兼容旧引用，统一参数口径
 
 ZONES = {
     "Z01": {
@@ -140,32 +143,32 @@ CAMPUS_MAP = {
 
 CAMPUS_PLANNING_AREAS = {
     "PA01": {
-        "name": "主楼首期试点区",
+        "name": "主楼照明区",
         "category": "教学与道路",
         "landmarks": ["主楼", "主干道", "主楼典型教室与走廊"],
-        "phase": "一期（已建模）",
+        "phase": "当前统一仿真",
         "status": "仿真验证中",
-        "priority": "P0",
+        "priority": "P1",
         "recommended_nodes": 3,
         "simulation_nodes": 3,
         "parameter_source": PHASE_ONE_PARAMETER_LABEL,
-        "gateway_plan": "GW-01 主楼中心虚拟网关",
+        "gateway_plan": "主要 GW-03；备用 GW-01 / GW-02",
         "lighting_scope": "教室灯、走廊灯、主楼附近道路灯",
         "control_strategy": "教室采用光照+人员，走廊采用人员，道路采用时间+光照+人员。",
-        "survey_notes": "现有 Z01/Z02/Z03 与 CL-N01/02/03 作为全校扩展的基线样板。",
+        "survey_notes": "Z01/Z02/Z03 与 CL-N01/02/03 和其余片区节点共同参与当前仿真。",
         "linked_zone_ids": ["Z01", "Z02", "Z03"],
     },
     "PA02": {
         "name": "教学楼群扩展区",
         "category": "教学",
         "landmarks": ["教一楼", "教二楼", "教三楼", "教四楼"],
-        "phase": "二期",
-        "status": "仿真估算已接入",
+        "phase": "当前统一仿真",
+        "status": "仿真验证中",
         "priority": "P1",
         "recommended_nodes": 12,
         "simulation_nodes": 1,
         "parameter_source": SIMULATION_ESTIMATE_LABEL,
-        "gateway_plan": "教学楼群候选网关（位置待链路勘测）",
+        "gateway_plan": "主要 GW-02 / GW-03；备用 GW-01",
         "lighting_scope": "教室、公共走廊、楼梯间、楼宇出入口",
         "control_strategy": "教室与自习空间采用光照+人员；走廊和楼梯采用人员感应与低亮保底。",
         "survey_notes": "优先核查楼层遮挡、跨楼链路和课间高峰人流。",
@@ -175,13 +178,13 @@ CAMPUS_PLANNING_AREAS = {
         "name": "图书馆与学生活动区",
         "category": "学习与公共服务",
         "landmarks": ["图书馆", "学生活动中心", "学生食堂"],
-        "phase": "二期",
-        "status": "仿真估算已接入",
+        "phase": "当前统一仿真",
+        "status": "仿真验证中",
         "priority": "P1",
         "recommended_nodes": 7,
         "simulation_nodes": 1,
         "parameter_source": SIMULATION_ESTIMATE_LABEL,
-        "gateway_plan": "图书馆周边候选网关（位置待链路勘测）",
+        "gateway_plan": "主要 GW-01；备用 GW-02 / GW-03",
         "lighting_scope": "阅览区、书库通道、活动空间、建筑外沿道路",
         "control_strategy": "开放时段+光照+人员联合控制，闭馆后保留安防照明。",
         "survey_notes": "按开闭馆时段、考试季延时开放和活动人流调整人员概率。",
@@ -191,13 +194,13 @@ CAMPUS_PLANNING_AREAS = {
         "name": "体育场馆区",
         "category": "体育",
         "landmarks": ["体育场", "体育馆", "游泳馆", "篮球场", "网球场", "全民健身"],
-        "phase": "二期",
-        "status": "仿真估算已接入",
+        "phase": "当前统一仿真",
+        "status": "仿真验证中",
         "priority": "P1",
         "recommended_nodes": 10,
         "simulation_nodes": 1,
         "parameter_source": SIMULATION_ESTIMATE_LABEL,
-        "gateway_plan": "体育馆高点候选网关（位置待链路勘测）",
+        "gateway_plan": "主要 GW-03；备用 GW-01",
         "lighting_scope": "场地灯、看台通道灯、场馆出入口和周边步道灯",
         "control_strategy": "预约/活动时段为主，结合环境光与人流分级调光。",
         "survey_notes": "重点评估大功率灯具回路、开阔场地覆盖和赛事集中控制。",
@@ -207,13 +210,13 @@ CAMPUS_PLANNING_AREAS = {
         "name": "学生公寓与生活服务区",
         "category": "生活",
         "landmarks": ["学生公寓群", "学生食堂", "学生综合服务大厅", "商业服务点"],
-        "phase": "三期",
-        "status": "仿真估算已接入",
-        "priority": "P2",
+        "phase": "当前统一仿真",
+        "status": "仿真验证中",
+        "priority": "P1",
         "recommended_nodes": 14,
         "simulation_nodes": 1,
         "parameter_source": SIMULATION_ESTIMATE_LABEL,
-        "gateway_plan": "公寓区分区候选网关（数量与位置待勘测）",
+        "gateway_plan": "主要 GW-01；备用 GW-02",
         "lighting_scope": "公寓公共走廊、出入口、生活区道路和服务设施周边",
         "control_strategy": "夜间时段+人员控制，深夜维持安全基础亮度。",
         "survey_notes": "需区分宿舍作息、夜间安防和密集建筑对 LoRa 的衰减。",
@@ -223,13 +226,13 @@ CAMPUS_PLANNING_AREAS = {
         "name": "科研与学术交流区",
         "category": "科研与会议",
         "landmarks": ["科研大楼", "科学会堂", "可靠网络通信协同创新中心"],
-        "phase": "三期",
-        "status": "仿真估算已接入",
-        "priority": "P2",
+        "phase": "当前统一仿真",
+        "status": "仿真验证中",
+        "priority": "P1",
         "recommended_nodes": 6,
         "simulation_nodes": 1,
         "parameter_source": SIMULATION_ESTIMATE_LABEL,
-        "gateway_plan": "科研区候选网关（位置待链路勘测）",
+        "gateway_plan": "主要 GW-01；备用 GW-03",
         "lighting_scope": "实验办公公共区、会议空间、楼宇出入口和连廊",
         "control_strategy": "工作日时段+人员+光照控制，会议活动支持临时策略。",
         "survey_notes": "关注实验设备电磁环境、晚间科研活动与临时会议场景。",
@@ -239,13 +242,13 @@ CAMPUS_PLANNING_AREAS = {
         "name": "校园道路与出入口区",
         "category": "道路与安防",
         "landmarks": ["校园主干道", "东门", "西门", "北门", "南门"],
-        "phase": "二期",
-        "status": "仿真估算已接入",
+        "phase": "当前统一仿真",
+        "status": "仿真验证中",
         "priority": "P1",
         "recommended_nodes": 12,
         "simulation_nodes": 1,
         "parameter_source": SIMULATION_ESTIMATE_LABEL,
-        "gateway_plan": "主干道沿线分段覆盖（中继/网关数量待勘测）",
+        "gateway_plan": "动态选择最优网关；其他在线网关作为备选",
         "lighting_scope": "主干道路灯、步行道路灯、校门和停车区照明",
         "control_strategy": "日落时刻+环境光+人车流控制，低峰期分段降亮。",
         "survey_notes": "优先测量南北向主干道、四个校门及建筑阴影区的链路质量。",
@@ -255,13 +258,13 @@ CAMPUS_PLANNING_AREAS = {
         "name": "校医院及家属公共区",
         "category": "公共服务与居住",
         "landmarks": ["校医院", "家属区公共道路", "北邮幼儿园周边"],
-        "phase": "三期",
-        "status": "仿真估算已接入",
-        "priority": "P2",
+        "phase": "当前统一仿真",
+        "status": "仿真验证中",
+        "priority": "P1",
         "recommended_nodes": 5,
         "simulation_nodes": 1,
         "parameter_source": SIMULATION_ESTIMATE_LABEL,
-        "gateway_plan": "生活区候选网关（位置待链路勘测）",
+        "gateway_plan": "主要 GW-02 / GW-03；不指定固定备用",
         "lighting_scope": "公共道路、建筑出入口和夜间安全照明",
         "control_strategy": "夜间安全优先，采用时段+人员感应并设置较高保底亮度。",
         "survey_notes": "规划仅覆盖公共照明，不采集住户或幼儿个人信息。",
@@ -385,10 +388,7 @@ DEVICES = {
     },
 }
 
-GATEWAYS = {
-    "GW-01": {
-        "name": "主楼 LoRaWAN 虚拟网关",
-        "location": "北邮本部主楼附近中心位置（仿真部署点）",
+GATEWAY_RADIO = {
         "status": "ONLINE",
         "frequency_band": "CN470",
         "tx_power_dbm": 14,
@@ -399,9 +399,43 @@ GATEWAYS = {
         "reference_path_loss_db": 40.0,
         "default_shadowing_std_db": 4.0,
         "max_devices": 200,
-    }
 }
+# 网关坐标为统一北向上坐标，楼顶高度为仿真设计值。
+GATEWAYS = {
+    "GW-01": {**GATEWAY_RADIO, "name": "图书馆网关", "location": "图书馆楼顶",
+              "x": 250.0, "y": 220.0, "height": 25.0},
+    "GW-02": {**GATEWAY_RADIO, "name": "西南教学区网关", "location": "教三楼附近高点/楼顶",
+              "x": 145.0, "y": 520.0, "height": 22.0},
+    "GW-03": {**GATEWAY_RADIO, "name": "通信创新中心网关", "location": "可靠网络通信协同创新中心楼顶",
+              "x": 355.0, "y": 520.0, "height": 25.0},
+}
+# 仅兼容旧单链路接口的缺省参数；不能作为设备固定归属。
 DEFAULT_GATEWAY_ID = "GW-01"
+
+AREA_GATEWAY_PLAN = {
+    "PA01": {"primary": ["GW-03"], "backup": ["GW-01", "GW-02"]},
+    "PA02": {"primary": ["GW-02", "GW-03"], "backup": ["GW-01"]},
+    "PA03": {"primary": ["GW-01"], "backup": ["GW-02", "GW-03"]},
+    "PA04": {"primary": ["GW-03"], "backup": ["GW-01"]},
+    "PA05": {"primary": ["GW-01"], "backup": ["GW-02"]},
+    "PA06": {"primary": ["GW-01"], "backup": ["GW-03"]},
+    "PA07": {"primary": [], "backup": [], "selection": "dynamic_best_rssi"},
+    "PA08": {"primary": ["GW-02", "GW-03"], "backup": []},
+}
+
+# 代表节点估算位置；不改变八片区边界、节点数量或区域归属。
+# PA07 的一个代表节点不能代表整圈道路，可在实验中传入不同坐标。
+DEVICE_POSITIONS = {
+    "CL-N01": (270, 410, 6), "CL-N02": (265, 425, 3),
+    "CL-N03": (285, 445, 6), "CL-N04": (150, 500, 6),
+    "CL-N05": (245, 220, 6), "CL-N06": (430, 430, 8),
+    "CL-N07": (100, 170, 6), "CL-N08": (350, 260, 6),
+    "CL-N09": (250, 35, 6), "CL-N10": (95, 645, 6),
+}
+for _device_id, (_x, _y, _height) in DEVICE_POSITIONS.items():
+    DEVICES[_device_id].update(x=float(_x), y=float(_y), height=float(_height),
+                              position_source=SIMULATION_ESTIMATE_LABEL)
+# distance_to_gateway_m 保留为旧实验参考值，新链路仅使用三维坐标计算距离。
 
 LIGHTING_RULES = {
     "Z01": {
@@ -565,6 +599,7 @@ LORA = {
     "rssi_max_dbm": -40,
     "snr_mean_db": 5.0,
     "snr_std_db": 2.5,
+    "noise_floor_dbm": -117.0,
 }
 
 NBIOT = {
@@ -687,6 +722,17 @@ def validate_config() -> tuple[bool, list[str]]:
             errors.append(f"{device_id}: distance_to_gateway_m必须大于0")
     if DEFAULT_GATEWAY_ID not in GATEWAYS:
         errors.append(f"默认网关{DEFAULT_GATEWAY_ID}不存在")
+    for target, position in {**DEVICES, **GATEWAYS}.items():
+        for key, maximum in (("x", CAMPUS_COORDINATES["width_m"]),
+                             ("y", CAMPUS_COORDINATES["height_m"]), ("height", 100)):
+            value = position.get(key)
+            if not isinstance(value, (int, float)) or not isfinite(value) or not 0 <= value <= maximum:
+                errors.append(f"{target}: {key} 必须为坐标范围内有限数值")
+    if set(AREA_GATEWAY_PLAN) != set(CAMPUS_PLANNING_AREAS):
+        errors.append("网关规划必须覆盖现有八片区")
+    for area_id, plan in AREA_GATEWAY_PLAN.items():
+        if any(gateway_id not in GATEWAYS for gateway_id in plan["primary"] + plan["backup"]):
+            errors.append(f"{area_id}: 网关规划引用未知网关")
 
     lux_profile = ENVIRONMENT.get("lux_profile", {})
     if not lux_profile or 0 not in lux_profile:
@@ -762,8 +808,8 @@ def validate_config() -> tuple[bool, list[str]]:
             errors.append(f"{area_id}: 代表仿真节点数必须等于关联仿真区域数")
         if int(area.get("simulation_nodes", 0)) > int(area.get("recommended_nodes", 0)):
             errors.append(f"{area_id}: 代表仿真节点数不能超过建议部署节点数")
-        if area_id != "PA01" and area.get("parameter_source") != SIMULATION_ESTIMATE_LABEL:
-            errors.append(f"{area_id}: 二、三期参数必须明确标注为仿真估算")
+        if area.get("parameter_source") != SIMULATION_ESTIMATE_LABEL:
+            errors.append(f"{area_id}: 所有片区参数必须明确标注为仿真估算")
         if not area.get("landmarks"):
             errors.append(f"{area_id}: 至少需要一个地图地标")
         for zone_id in area.get("linked_zone_ids", []):

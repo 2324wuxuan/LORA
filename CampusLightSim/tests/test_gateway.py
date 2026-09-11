@@ -22,7 +22,7 @@ class GatewayTests(unittest.TestCase):
     def test_configuration(self):
         self.assertEqual(len(GATEWAYS), 3)
         self.assertEqual(len(CAMPUS_PLANNING_AREAS), 8)
-        self.assertEqual(len(DEVICES), 10)
+        self.assertEqual(len(DEVICES), 1690)
         self.assertEqual(AREA_GATEWAY_PLAN["PA07"]["primary"], [])
         self.assertEqual([(g["x"], g["y"], g["height"]) for g in GATEWAYS.values()],
                          [(250, 220, 25), (145, 520, 22), (355, 520, 25)])

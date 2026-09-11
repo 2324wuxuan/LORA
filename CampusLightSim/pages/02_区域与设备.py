@@ -1,6 +1,8 @@
 """Streamlit page for campus-zone planning and virtual environment sensors."""
 
 from datetime import datetime, time, timedelta
+import csv
+from io import StringIO
 from html import escape
 
 import streamlit as st
@@ -18,12 +20,15 @@ from config import (
     DEVICES,
     GATEWAYS,
     LIGHTING_RULES,
+    LIGHTING_PLAN_ESTIMATE,
     RESEARCH_AREA,
     SCHOOL_NAME,
     SIMULATION_STEP_MINUTES,
     ZONES,
 )
 from simulator.environment import get_environment, get_lux, get_occupancy_probability
+from planning import PLAN_BOUNDARY
+from analysis.energy_cache import daily_energy_for_ui
 
 
 def _markdown_table(rows: list[dict]) -> str:
@@ -104,7 +109,7 @@ def _lux_chart_svg(series: dict[str, list[float]]) -> str:
 st.title("🏫 区域与设备规划")
 st.caption(f"研究范围：{SCHOOL_NAME}{CAMPUS_NAME} · {RESEARCH_AREA}")
 st.info(
-    "八个片区的十个代表节点共同参与当前仿真，没有先后阶段。所有节点参数统一标为“仿真估算”，"
+    f"八个片区的 {len(DEVICES)} 个独立控制节点全部接入仿真。每间教室一个节点，走廊分段、路灯逐杆控制。所有参数统一标为“仿真估算”，"
     "用于运行 Lux、Occupancy、智能照明和能耗仿真，不代表现场实测或最终施工配置。"
 )
 
@@ -112,11 +117,13 @@ st.info(
 st.subheader("校园总体规划地图")
 planned_nodes = sum(area["recommended_nodes"] for area in CAMPUS_PLANNING_AREAS.values())
 simulation_nodes = sum(area["simulation_nodes"] for area in CAMPUS_PLANNING_AREAS.values())
-plan_col, zone_col, simulation_col, node_total_col = st.columns(4)
+plan_col, zone_col, simulation_col, node_total_col, fixture_col = st.columns(5)
 plan_col.metric("校园规划片区", len(CAMPUS_PLANNING_AREAS))
-zone_col.metric("代表仿真区域", len(ZONES))
-simulation_col.metric("代表仿真节点", simulation_nodes)
-node_total_col.metric("建议部署节点", planned_nodes)
+zone_col.metric("独立控制区", len(ZONES))
+simulation_col.metric("已接入控制节点", simulation_nodes)
+node_total_col.metric("规划控制节点（估算）", planned_nodes)
+fixture_col.metric("规划灯具（估算）", LIGHTING_PLAN_ESTIMATE["fixtures"])
+st.caption("主楼按10层×每层10间教室；每间教室12灯、1控制节点。其余区域逐项估算，灯具数与控制节点数分别统计。")
 
 map_path = BASE_DIR / CAMPUS_MAP["asset_path"]
 if map_path.exists():
@@ -135,11 +142,29 @@ for area_id, area in CAMPUS_PLANNING_AREAS.items():
             "地图地标": "、".join(area["landmarks"]),
             "状态": area["status"],
             "参数性质": "仿真估算" if "仿真估算" in area["parameter_source"] else "仿真估算",
-            "代表节点": area["simulation_nodes"],
-            "建议节点": area["recommended_nodes"],
+            "已接入节点": area["simulation_nodes"],
+            "规划控制节点": area["recommended_nodes"],
+            "规划灯具": area["recommended_fixtures"],
         }
     )
 st.markdown(_markdown_table(planning_rows))
+
+with st.expander("照明数量估算明细与计算依据", expanded=False):
+    st.write(PLAN_BOUNDARY)
+    st.caption("建筑项节点=建筑单元数×层数×每层控制区；灯具=节点×每节点灯数。道路按向上取整配置灯杆，开放路段另计端点，环路不重复计端点。修改 planning.py 的清单因子后重启应用可重新计算。")
+    quantity_rows = [
+        {"片区": row["area_id"], "清单编号": row["item_id"], "照明对象": row["name"],
+         "节点计算式": row["node_formula"], "控制节点": row["control_nodes"],
+         "灯具计算式": row["fixture_formula"], "灯具": row["fixtures"], "假设依据": row["basis"]}
+        for row in LIGHTING_PLAN_ESTIMATE["rows"]
+    ]
+    st.markdown(_markdown_table(quantity_rows))
+    csv_stream = StringIO()
+    writer = csv.DictWriter(csv_stream, fieldnames=list(quantity_rows[0]))
+    writer.writeheader()
+    writer.writerows(quantity_rows)
+    st.download_button("下载照明数量清单 CSV", csv_stream.getvalue().encode("utf-8-sig"),
+                       file_name="lighting_quantity_plan.csv", mime="text/csv")
 
 selected_area_id = st.selectbox(
     "查看片区规划详情",
@@ -161,7 +186,7 @@ with area_right:
 
 
 st.divider()
-st.subheader("全校代表仿真区域")
+st.subheader("全校独立照明控制区")
 
 zone_rows = []
 for zone_id, zone in ZONES.items():
@@ -182,7 +207,7 @@ for zone_id, zone in ZONES.items():
         }
     )
 
-st.markdown(_markdown_table(zone_rows))
+st.dataframe(zone_rows, width="stretch", hide_index=True)
 
 gateway_col, node_col, step_col = st.columns(3)
 gateway_col.metric("虚拟网关", len(GATEWAYS))
@@ -238,15 +263,15 @@ chart_data = {
         get_lux(zone_id, day_start + timedelta(minutes=30 * index))
         for index in range(48)
     ]
-    for zone_id in CAMPUS_PLANNING_AREAS[zone["planning_area_id"]]["linked_zone_ids"]
+    for zone_id in list(dict.fromkeys([selected_zone_id] + CAMPUS_PLANNING_AREAS[zone["planning_area_id"]]["linked_zone_ids"]))[:3]
 }
 st.markdown(_lux_chart_svg(chart_data), unsafe_allow_html=True)
-st.caption("曲线展示当前区域所属片区的代表节点；室内外差异由 config.py 中的场景光照系数表达。")
+st.caption("曲线展示所选控制区及同片区最多另外两个控制区，避免千条曲线重叠；全部节点仍参与能耗计算。")
 
 
 st.divider()
-st.subheader("代表节点 24 小时能耗仿真")
-energy_result = simulate_smart_daily_energy(selected_date)
+st.subheader("全部控制节点 24 小时能耗仿真")
+energy_result = daily_energy_for_ui(selected_date)
 traditional_total = calculate_traditional_daily_energy()
 smart_total = energy_result["total_energy_kwh"]
 energy_cols = st.columns(4)
@@ -255,7 +280,7 @@ energy_cols[1].metric("智能策略", f"{smart_total:.3f} kWh")
 energy_cols[2].metric("估算节能率", f"{calculate_saving_rate(traditional_total, smart_total):.1f}%")
 energy_cols[3].metric("参与区域", f"{len(energy_result['zone_energy_kwh'])}/{len(ZONES)}")
 st.caption(
-    "结果是 10 个代表回路在所选日期的仿真估算，不是 69 个建议部署节点的全校实测总电量。"
+    f"已逐一计算 {len(DEVICES)} 个独立回路，覆盖 {LIGHTING_PLAN_ESTIMATE['fixtures']} 盏灯；每个回路功率由灯数×单灯功率计算。结果为全量软件仿真，非现场实测。"
 )
 
 energy_rows = []
@@ -270,7 +295,7 @@ for area_id, area in CAMPUS_PLANNING_AREAS.items():
     energy_rows.append(
         {
             "片区": f"{area_id} {area['name']}",
-            "代表回路": len(area_devices),
+            "独立回路": len(area_devices),
             "传统 (kWh)": f"{traditional:.3f}",
             "智能 (kWh)": f"{smart:.3f}",
             "节能率": f"{calculate_saving_rate(traditional, smart):.1f}%",
@@ -294,13 +319,15 @@ for device_id, device in DEVICES.items():
             "网关": "每周期动态选择最优链路",
             "估算坐标 (m)": f"({device['x']:g}, {device['y']:g})",
             "额定功率 (W)": device["rated_power_w"],
+            "回路灯具数": device["fixture_count"],
+            "楼层": device["floor"],
             "SF": device["lora_sf"],
             "主网络": device["primary_network"],
             "补充网络": device.get("backup_network") or "—",
             "参数性质": "仿真估算" if "仿真估算" in device["parameter_source"] else "仿真估算",
         }
     )
-st.markdown(_markdown_table(deployment_rows))
+st.dataframe(deployment_rows, width="stretch", hide_index=True)
 
 with st.expander("参数口径说明"):
     st.markdown(
@@ -308,7 +335,7 @@ with st.expander("参数口径说明"):
         "- 节点坐标是新增仿真估算，片区归属保持不变；链路距离由节点与网关坐标计算。\n"
         "- 所有节点的距离、功率、SF、光照系数及人员时段均不是现场实测值。\n"
         "- 所有节点配置明确标注为“仿真估算”，依据校园地图相对位置和教室、阅览区、体育场、宿舍走廊、科研公共区、道路等场景类型给出。\n"
-        "- 69 个建议节点表示后续部署量；当前只有 10 个代表节点参加逐点仿真，不能直接外推为全校真实能耗。\n"
+        f"- {planned_nodes} 个控制节点已全部实例化；{LIGHTING_PLAN_ESTIMATE['fixtures']} 盏灯按教室/分区/灯杆归入回路，具有独立状态和故障管理。\n"
         "- 校园地图作为规划底图保存在项目 `assets` 目录，网页不依赖外部图片链接。\n"
         "- 光照曲线、室内衰减系数、人员概率和采样间隔统一维护在 `config.py`。\n"
         "- `environment.py` 只产生 Lux 与 Occupancy，不包含照明控制、LoRa 或数据库逻辑。\n"

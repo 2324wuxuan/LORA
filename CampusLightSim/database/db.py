@@ -8,12 +8,26 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
 import sqlite3
 from uuid import uuid4
 
-from config import DATABASE_PATH, DEVICES, SYSTEM, ZONES
+from config import DATABASE_PATH, DEVICES, SYSTEM, ZONES, DEPLOYMENT_VERSION
+
+_active_connection = ContextVar("database_transaction", default=None)
+
+
+@contextmanager
+def transaction():
+    """Reuse one connection/commit for a complete simulation time step."""
+    with _connection() as connection:
+        token = _active_connection.set(connection)
+        try:
+            yield connection
+        finally:
+            _active_connection.reset(token)
 
 
 def get_connection() -> sqlite3.Connection:
@@ -27,6 +41,10 @@ def get_connection() -> sqlite3.Connection:
 
 @contextmanager
 def _connection():
+    active = _active_connection.get()
+    if active is not None:
+        yield active
+        return
     connection = get_connection()
     try:
         with connection:
@@ -73,7 +91,7 @@ def init_database() -> None:
         """)
         # 对已有数据库进行增量迁移，保留照明状态、告警及维修记录。
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(devices)")}
-        for name, kind in (("gateway_id", "TEXT"), ("height", "REAL")):
+        for name, kind in (("gateway_id", "TEXT"), ("height", "REAL"), ("deployment_version", "TEXT")):
             if name not in columns:
                 conn.execute(f"ALTER TABLE devices ADD COLUMN {name} {kind}")
         if "gateway_id" not in columns:
@@ -81,6 +99,16 @@ def init_database() -> None:
             conn.execute("UPDATE devices SET distance=NULL")
         _seed_configured_devices(conn)
         for device_id, config in DEVICES.items():
+            # Update definition fields once when a former representative record
+            # becomes a real circuit. Preserve operation, alarm, and manual state.
+            conn.execute("UPDATE devices SET name=?, zone=?, area=?, rated_power=?, "
+                         "x=?, y=?, height=?, sf=?, power=CASE WHEN lamp_state=1 "
+                         "THEN ?*COALESCE(brightness,0)/100 ELSE 0 END, deployment_version=? "
+                         "WHERE device_id=? AND COALESCE(deployment_version,'')<>?",
+                         (config["device_name"], ZONES[config["zone_id"]]["name"],
+                          ZONES[config["zone_id"]]["name"], config["rated_power_w"],
+                          config["x"], config["y"], config["height"], config["lora_sf"],
+                          config["rated_power_w"], DEPLOYMENT_VERSION, device_id, DEPLOYMENT_VERSION))
             conn.execute("UPDATE devices SET x=COALESCE(x, ?), y=COALESCE(y, ?), "
                          "height=COALESCE(height, ?) WHERE device_id=?",
                          (config["x"], config["y"], config["height"], device_id))

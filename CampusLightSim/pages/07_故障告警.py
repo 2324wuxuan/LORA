@@ -64,7 +64,7 @@ def detect(device_id, cycles=1):
 
 
 st.title("🚨 故障告警")
-st.caption("全部十个节点均可注入故障。按钮推进实际采样周期；刷新页面不会重复采样。")
+st.caption(f"全部 {len(DEVICES)} 个独立节点均可注入故障。按钮推进实际采样周期；刷新页面不会重复采样。")
 st.subheader("当前告警")
 alarm_panel = st.container()
 

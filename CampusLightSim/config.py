@@ -4,11 +4,12 @@ Research area: Beijing University of Posts and Telecommunications (BUPT),
 main campus teaching, research, residential, sports and road lighting areas.
 
 The values below are simulation/design parameters unless explicitly replaced
-by field measurements. All ten representative nodes across eight planning
-areas participate equally in the current simulation, without rollout phases.
+by field measurements. Ten scenario templates are expanded into all 1,690
+independent control circuits across eight planning areas at module load.
 """
 from pathlib import Path
 from math import isfinite
+from planning import estimate_lighting_plan
 
 CAMPUS_COORDINATES = {"width_m": 500, "height_m": 750,
                       "origin": "西北角", "x_direction": "东", "y_direction": "南"}
@@ -149,7 +150,6 @@ CAMPUS_PLANNING_AREAS = {
         "phase": "当前统一仿真",
         "status": "仿真验证中",
         "priority": "P1",
-        "recommended_nodes": 3,
         "simulation_nodes": 3,
         "parameter_source": PHASE_ONE_PARAMETER_LABEL,
         "gateway_plan": "主要 GW-03；备用 GW-01 / GW-02",
@@ -165,7 +165,6 @@ CAMPUS_PLANNING_AREAS = {
         "phase": "当前统一仿真",
         "status": "仿真验证中",
         "priority": "P1",
-        "recommended_nodes": 12,
         "simulation_nodes": 1,
         "parameter_source": SIMULATION_ESTIMATE_LABEL,
         "gateway_plan": "主要 GW-02 / GW-03；备用 GW-01",
@@ -181,7 +180,6 @@ CAMPUS_PLANNING_AREAS = {
         "phase": "当前统一仿真",
         "status": "仿真验证中",
         "priority": "P1",
-        "recommended_nodes": 7,
         "simulation_nodes": 1,
         "parameter_source": SIMULATION_ESTIMATE_LABEL,
         "gateway_plan": "主要 GW-01；备用 GW-02 / GW-03",
@@ -197,7 +195,6 @@ CAMPUS_PLANNING_AREAS = {
         "phase": "当前统一仿真",
         "status": "仿真验证中",
         "priority": "P1",
-        "recommended_nodes": 10,
         "simulation_nodes": 1,
         "parameter_source": SIMULATION_ESTIMATE_LABEL,
         "gateway_plan": "主要 GW-03；备用 GW-01",
@@ -213,7 +210,6 @@ CAMPUS_PLANNING_AREAS = {
         "phase": "当前统一仿真",
         "status": "仿真验证中",
         "priority": "P1",
-        "recommended_nodes": 14,
         "simulation_nodes": 1,
         "parameter_source": SIMULATION_ESTIMATE_LABEL,
         "gateway_plan": "主要 GW-01；备用 GW-02",
@@ -229,7 +225,6 @@ CAMPUS_PLANNING_AREAS = {
         "phase": "当前统一仿真",
         "status": "仿真验证中",
         "priority": "P1",
-        "recommended_nodes": 6,
         "simulation_nodes": 1,
         "parameter_source": SIMULATION_ESTIMATE_LABEL,
         "gateway_plan": "主要 GW-01；备用 GW-03",
@@ -245,7 +240,6 @@ CAMPUS_PLANNING_AREAS = {
         "phase": "当前统一仿真",
         "status": "仿真验证中",
         "priority": "P1",
-        "recommended_nodes": 12,
         "simulation_nodes": 1,
         "parameter_source": SIMULATION_ESTIMATE_LABEL,
         "gateway_plan": "动态选择最优网关；其他在线网关作为备选",
@@ -261,7 +255,6 @@ CAMPUS_PLANNING_AREAS = {
         "phase": "当前统一仿真",
         "status": "仿真验证中",
         "priority": "P1",
-        "recommended_nodes": 5,
         "simulation_nodes": 1,
         "parameter_source": SIMULATION_ESTIMATE_LABEL,
         "gateway_plan": "主要 GW-02 / GW-03；不指定固定备用",
@@ -271,6 +264,13 @@ CAMPUS_PLANNING_AREAS = {
         "linked_zone_ids": ["Z10"],
     },
 }
+
+# Quantities are derived from the auditable inventory, never hand-entered totals.
+LIGHTING_PLAN_ESTIMATE = estimate_lighting_plan()
+for _area_id, _area in CAMPUS_PLANNING_AREAS.items():
+    _totals = LIGHTING_PLAN_ESTIMATE["areas"][_area_id]
+    _area["recommended_nodes"] = _totals["control_nodes"]
+    _area["recommended_fixtures"] = _totals["fixtures"]
 
 DEVICES = {
     "CL-N01": {
@@ -669,6 +669,17 @@ ENERGY = {
 }
 
 
+# The original ten scenarios are templates only; every planned control circuit
+# is now an independent device and an independent sensor/control zone.
+from deployment import expand_deployment
+DEVICE_TEMPLATES = DEVICES
+ZONE_TEMPLATES = ZONES
+DEVICES, ZONES, LIGHTING_RULES = expand_deployment(
+    DEVICE_TEMPLATES, ZONE_TEMPLATES, LIGHTING_RULES, ENVIRONMENT, CAMPUS_PLANNING_AREAS)
+DEVICE_POSITIONS = {key: (d["x"], d["y"], d["height"]) for key, d in DEVICES.items()}
+DEPLOYMENT_VERSION = "full-circuits-2026-09-11"
+
+
 def get_zone(zone_id: str) -> dict:
     if zone_id not in ZONES:
         raise KeyError(f"未知区域编号: {zone_id}")
@@ -779,7 +790,7 @@ def validate_config() -> tuple[bool, list[str]]:
         if not zone.get("parameter_source"):
             errors.append(f"{zone_id}: 缺少参数来源标注")
         if sum(device["zone_id"] == zone_id for device in DEVICES.values()) != 1:
-            errors.append(f"{zone_id}: 必须配置且仅配置一个代表仿真节点")
+            errors.append(f"{zone_id}: 必须配置且仅配置一个独立控制节点")
         if float(lux_factors.get(zone_id, 0)) <= 0:
             errors.append(f"{zone_id}: zone_lux_factor必须大于0")
         schedule = occupancy_schedules.get(zone_id, [])
@@ -800,7 +811,7 @@ def validate_config() -> tuple[bool, list[str]]:
 
     required_planning_fields = {
         "name", "category", "landmarks", "phase", "status", "priority",
-        "recommended_nodes", "simulation_nodes", "parameter_source",
+        "recommended_nodes", "recommended_fixtures", "simulation_nodes", "parameter_source",
         "gateway_plan", "lighting_scope", "control_strategy", "survey_notes",
         "linked_zone_ids",
     }
@@ -810,10 +821,14 @@ def validate_config() -> tuple[bool, list[str]]:
             errors.append(f"{area_id}: 规划片区缺少字段 {', '.join(missing_fields)}")
         if int(area.get("recommended_nodes", 0)) <= 0:
             errors.append(f"{area_id}: 建议节点数必须大于0")
+        expected = LIGHTING_PLAN_ESTIMATE["areas"].get(area_id, {})
+        if (area.get("recommended_nodes") != expected.get("control_nodes")
+                or area.get("recommended_fixtures") != expected.get("fixtures")):
+            errors.append(f"{area_id}: 规划数量必须与照明清单计算结果一致")
         if int(area.get("simulation_nodes", 0)) != len(area.get("linked_zone_ids", [])):
-            errors.append(f"{area_id}: 代表仿真节点数必须等于关联仿真区域数")
+            errors.append(f"{area_id}: 已接入节点数必须等于关联独立控制区数")
         if int(area.get("simulation_nodes", 0)) > int(area.get("recommended_nodes", 0)):
-            errors.append(f"{area_id}: 代表仿真节点数不能超过建议部署节点数")
+            errors.append(f"{area_id}: 已接入节点数不能超过清单控制节点数")
         if area.get("parameter_source") != SIMULATION_ESTIMATE_LABEL:
             errors.append(f"{area_id}: 所有片区参数必须明确标注为仿真估算")
         if not area.get("landmarks"):

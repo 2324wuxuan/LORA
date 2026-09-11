@@ -110,10 +110,13 @@ for key, node in all_devices.items():
     dx, dy, anchor = {"CL-N01": (-14, -7, "end"), "CL-N02": (-14, 12, "end"),
                       "CL-N03": (14, 17, "start"), "CL-N05": (-14, -12, "end")}.get(
                           key, (14, -10, "start"))
-    parts.append(f'<text x="{node["x"] + dx}" y="{node["y"] + dy}" '
-                 f'text-anchor="{anchor}" font-size="12" fill="currentColor">{key}</text></g>')
+    if key == device_id:
+        parts.append(f'<text x="{node["x"] + dx}" y="{node["y"] + dy}" '
+                     f'text-anchor="{anchor}" font-size="12" fill="currentColor">{key}</text>')
+    parts.append('</g>')
 parts.append('</svg>')
 st.markdown("".join(parts), unsafe_allow_html=True)
+st.caption("所有节点均计算并绘制；只标注所选节点文字以避免重叠。3个网关当前只验证链路模型，不代表已验证1690节点的LoRaWAN并发容量。")
 
 st.subheader("全部节点链路汇总")
 st.dataframe([

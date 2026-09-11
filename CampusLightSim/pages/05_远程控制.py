@@ -14,7 +14,7 @@ from database import db
 
 
 st.title("🎛️ 远程照明控制")
-st.caption("校园全覆盖 · 8 个规划片区 · 10 个代表照明节点")
+st.caption(f"校园全覆盖 · {len(CAMPUS_PLANNING_AREAS)} 个规划片区 · {len(DEVICES)} 个独立照明控制节点")
 st.divider()
 
 
@@ -108,14 +108,14 @@ total_power = sum(device_power(d) for d in st.session_state.devices.values())
 
 c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("规划片区", len(CAMPUS_PLANNING_AREAS))
-c2.metric("代表区域", len(ZONES))
+c2.metric("独立控制区", len(ZONES))
 c3.metric("照明节点", total_devices)
 c4.metric("在线节点", f"{online_devices}/{total_devices}")
 c5.metric("当前总功率", f"{total_power:.1f} W")
 
 st.caption(
     f"AUTO：{auto_devices} 个　|　MANUAL：{manual_devices} 个　|　"
-    "控制对象为校园全覆盖规划下的代表仿真节点。"
+    "控制对象为校园全覆盖规划下的全部独立节点。"
 )
 
 st.divider()
@@ -153,7 +153,7 @@ device_options = [
     for device_id in allowed_device_ids
 ]
 
-selected_device_label = st.selectbox("代表照明节点", device_options)
+selected_device_label = st.selectbox("独立照明节点（可搜索楼层/编号）", device_options)
 selected_device_id = selected_device_label.split(" · ", 1)[0]
 device = st.session_state.devices[selected_device_id]
 
@@ -178,6 +178,7 @@ d5.metric("当前功率", f"{device_power(device):.1f} W")
 st.write(f"**片区：** {area['name']}")
 st.write(f"**区域：** {zone['name']}　—　{zone['location']}")
 st.write(f"**设备：** {device.get('device_name', selected_device_id)}")
+st.write(f"**回路：** {device.get('fixture_count', 1)} 盏灯 × {device.get('fixture_power_w', 0):g} W；一个节点共同控制整个回路")
 st.write(f"**照明策略：** {zone.get('control_mode', '未配置')}")
 st.write(f"**网关规划：** {area.get('gateway_plan', '未配置')}")
 st.write(f"**参数口径：** {device.get('parameter_source', '未标注')}")
@@ -301,11 +302,12 @@ for area_id, area_info in CAMPUS_PLANNING_AREAS.items():
         {
             "片区": area_id,
             "片区名称": area_info["name"],
-            "代表节点": len(ids),
+            "独立节点": len(ids),
             "在线": f"{area_online}/{len(ids)}",
             "手动控制": area_manual,
             "当前功率(W)": round(area_power, 1),
-            "建议部署节点": area_info.get("recommended_nodes", ""),
+            "规划控制节点（估算）": area_info.get("recommended_nodes", ""),
+            "规划灯具（估算）": area_info.get("recommended_fixtures", ""),
             "网关规划": area_info.get("gateway_plan", ""),
         }
     )
@@ -333,8 +335,7 @@ else:
     st.info("暂无远程控制操作记录。")
 
 st.caption(
-    "说明：当前页面控制的是校园全覆盖规划中的 10 个代表仿真节点，"
-    "分别覆盖 Z01～Z10 / PA01～PA08。"
-    "实际大规模部署数量由 config.py 中各规划片区的 recommended_nodes 表示；"
-    "代表节点用于软件仿真和控制链路验证。"
+    f"说明：当前页面可控制全部 {len(DEVICES)} 个独立节点，覆盖八个规划片区。"
+    "规划控制节点与灯具数量由 planning.py 清单分别计算后写入 config.py；"
+    "所有控制节点已实例化，支持逐间教室和逐杆路灯的软件控制。"
 )

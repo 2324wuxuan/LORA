@@ -51,6 +51,10 @@ class AppTests(unittest.TestCase):
         self.assertFalse(app.exception)
         self.assertIn("区域与设备", app.title[0].value)
         self.assertTrue(any("校园总体规划地图" in item.value for item in app.subheader))
+        quantities = {item.label: item.value for item in app.metric}
+        self.assertEqual(quantities["规划控制节点（估算）"], "1690")
+        self.assertEqual(quantities["规划灯具（估算）"], "8363")
+        self.assertTrue(any("MAIN-ROOM" in item.value for item in app.markdown))
 
     def test_three_gateway_network_page(self):
         app = AppTest.from_file(str(APP.parent / "pages" / "04_LoRa网络.py")).run(timeout=20)

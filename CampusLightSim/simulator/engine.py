@@ -33,6 +33,7 @@ engine.py 不重新实现任何被调用模块内部的算法，只负责按顺�
 from __future__ import annotations
 
 from collections.abc import Iterable
+from contextlib import nullcontext
 from datetime import datetime, timedelta
 
 from config import DEVICES, RANDOM_SEED, SIMULATION_STEP_MINUTES
@@ -47,7 +48,7 @@ _SEVERITY_ORDER = {"CRITICAL": 0, "WARNING": 1, "INFO": 2}
 
 
 def _select_device_ids(device_ids: Iterable[str] | None) -> list[str]:
-    """校验并规范化参与仿真的设备编号；默认使用全部 10 个代表节点。"""
+    """校验参与仿真的设备编号；默认使用全部已实例化控制节点。"""
     if device_ids is None:
         return list(DEVICES)
     selected = list(device_ids)
@@ -80,6 +81,7 @@ def simulate_step(
     *,
     fault_manager: FaultManager,
     gateways: dict | None = None,
+    all_alarms: bool = True,
 ) -> dict:
     """推进单个设备一个采样周期，返回 FaultManager.sample_network 的完整快照。
 
@@ -119,7 +121,7 @@ def simulate_step(
 
     result = fault_manager.sample_network(
         node.to_dict(), telemetry,
-        timestamp=timestamp, gateways=gateways, auto_control_ok=auto_control_ok,
+        timestamp=timestamp, gateways=gateways, auto_control_ok=auto_control_ok, all_alarms=all_alarms,
     )
 
     # 把本周期选中的网关/距离写回设备对象，供下一周期及页面展示使用。
@@ -189,14 +191,15 @@ def run_simulation(
     seed: int = RANDOM_SEED,
     persist: bool = True,
     reset_lighting_state: bool = True,
+    progress_callback=None,
 ) -> list[dict]:
     """运行一段仿真，返回按时间→设备顺序排列的 Telemetry 列表。
 
     参数：
         start_time：仿真起始时刻。
         hours：仿真时长（小时），默认 24；按 step_minutes 换算成采样点数。
-        device_ids：参与仿真的设备编号；默认全部 10 个代表节点，也可以只传
-            一期的 ["CL-N01", "CL-N02", "CL-N03"] 做小范围验证。
+        device_ids：参与仿真的设备编号；默认全部1,690个独立控制节点。
+            显式传入列表可运行选定子集；不传时不会退回10节点示例。
         step_minutes：采样步长（分钟），默认取 config.SIMULATION_STEP_MINUTES（5）。
         gateways：自定义网关拓扑；默认 None 时 FaultManager 内部使用
             config.GATEWAYS。
@@ -214,6 +217,7 @@ def run_simulation(
     返回：
         list[dict]，每个元素满足 interfaces.md 第 3 节的 Telemetry 契约
         （并附带 gateway_id / pdr 两个便于分析的额外字段）。
+        progress_callback(completed_steps, total_steps) 可选，用于全量运行进度。
     """
     if not isinstance(start_time, datetime):
         raise TypeError("start_time 必须是 datetime")
@@ -244,16 +248,19 @@ def run_simulation(
     # 收到的时间戳严格递增，同时符合“每一个时间点”依次跑完全部设备的要求。
     for index in range(steps):
         timestamp = start_time + timedelta(minutes=index * step_minutes)
-        for device_id in selected_ids:
-            zone_id = DEVICES[device_id]["zone_id"]
-            node = active_nodes[device_id]
-            result = simulate_step(
-                node, zone_id, timestamp,
-                fault_manager=manager, gateways=gateways,
-            )
-            telemetry_list.append(_build_telemetry(device_id, zone_id, result["telemetry"]))
-            if persist:
-                _persist(device_id, result, persisted_alarm_status)
+        with db.transaction() if persist else nullcontext():
+            for device_id in selected_ids:
+                zone_id = DEVICES[device_id]["zone_id"]
+                node = active_nodes[device_id]
+                result = simulate_step(
+                    node, zone_id, timestamp,
+                    fault_manager=manager, gateways=gateways, all_alarms=False,
+                )
+                telemetry_list.append(_build_telemetry(device_id, zone_id, result["telemetry"]))
+                if persist:
+                    _persist(device_id, result, persisted_alarm_status)
+        if progress_callback is not None:
+            progress_callback(index + 1, steps)
 
     return telemetry_list
 

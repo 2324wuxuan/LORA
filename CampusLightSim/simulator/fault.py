@@ -200,7 +200,7 @@ class FaultManager:
     def sample(self, device: dict, telemetry: dict | None,
                gateway_status: str = "ONLINE", *, timestamp: datetime,
                auto_control_ok: bool = False, gateway_id=DEFAULT_GATEWAY_ID,
-               link_adjusted: bool = False) -> dict:
+               link_adjusted: bool = False, all_alarms: bool = True) -> dict:
         """叠加异常、统计上传、更新告警，返回供引擎和数据库使用的快照。
 
         telemetry 为本周期原始正常 LoRa 结果（不得重复传入本方法的输出）。
@@ -267,10 +267,11 @@ class FaultManager:
                 self._confirm_recovery(gateway_id, timestamp)
         return deepcopy(dict(device=node, telemetry=data, accept_telemetry=valid,
                              latest_telemetry=self._latest.get(device_id),
-                             recovered=healthy, alarms=self.get_alarms()))
+                             recovered=healthy, alarms=(self.get_alarms() if all_alarms else
+                                 self.current_alarms_for([device_id, *GATEWAYS]))))
 
     def sample_network(self, device: dict, telemetry: dict | None, *, timestamp: datetime,
-                       gateways: dict | None = None, auto_control_ok=False) -> dict:
+                       gateways: dict | None = None, auto_control_ok=False, all_alarms=True) -> dict:
         """三网关入口：环境/灯具遥测 → 叠加故障 → 动态选路 → 状态检测。
 
         正常链路由 gateway/lora 计算；本方法仅提供注入损耗及网关离线状态。
@@ -292,7 +293,7 @@ class FaultManager:
                               extra_loss_db=self._faults[device_id].get("signal_attenuation", 0))
         result = self.sample(device, {**telemetry, **link} if telemetry is not None else None,
                              timestamp=timestamp, auto_control_ok=auto_control_ok,
-                             gateway_id=link["gateway_id"], link_adjusted=True)
+                             gateway_id=link["gateway_id"], link_adjusted=True, all_alarms=all_alarms)
         for key, gateway in effective.items():
             if gateway["status"] == "ONLINE":
                 continue
@@ -305,7 +306,8 @@ class FaultManager:
                                          "OFFLINE", gateway_id=key):
                     if alarm["alarm_type"] == "gateway_offline":
                         self._alarms[alarm_key] = alarm
-        result["alarms"] = self.get_alarms()
+        result["alarms"] = (self.get_alarms() if all_alarms else
+                            self.current_alarms_for([device_id, *effective]))
         result["gateway_links"] = link["gateway_links"]
         return result
 
@@ -313,8 +315,9 @@ class FaultManager:
         if device_id in self._pending and timestamp <= self._pending[device_id]:
             return
         closed = False
-        for (target, _), alarm in self._alarms.items():
-            if target == device_id and alarm["status"] != "CLOSED":
+        for kind in (*FAULT_CODES, "signal_attenuation"):
+            alarm = self._alarms.get((device_id, kind))
+            if alarm is not None and alarm["status"] != "CLOSED":
                 alarm.update(status="CLOSED", recovered_at=timestamp)
                 closed = True
         if closed or device_id in self._pending:
@@ -342,6 +345,12 @@ class FaultManager:
             raise ValueError("控制结果必须为 SUCCESS 或 FAILED")
         return self._log(device_id, "manual_control", "none", "INFO", result,
                          description, timestamp or datetime.now())
+
+    def current_alarms_for(self, targets):
+        """Bounded current snapshot; complete historical snapshots remain available."""
+        return deepcopy([self._alarms[(target, kind)] for target in targets
+                         for kind in (*FAULT_CODES, "signal_attenuation")
+                         if (target, kind) in self._alarms])
 
     def get_alarms(self, status: str | None = None) -> list[dict]:
         return deepcopy([a for a in [*self._alarm_history, *self._alarms.values()]

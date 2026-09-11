@@ -13,7 +13,7 @@ import streamlit as st
 
 from config import (
     APP_ICON, APP_SUBTITLE, APP_TITLE, CAMPUS_PLANNING_AREAS, DEFAULT_EXPERIMENT_MODE,
-    DEVICES, GATEWAYS, PROJECT_TITLE, RESEARCH_AREA,
+    DEVICES, GATEWAYS, PROJECT_TITLE, RESEARCH_AREA, LIGHTING_PLAN_ESTIMATE, DEPLOYMENT_VERSION,
     SIMULATION_POINTS_PER_DAY, SIMULATION_STEP_MINUTES, ZONES, validate_config,
 )
 from simulator.fault import FaultManager
@@ -32,7 +32,8 @@ def initialize_session() -> None:
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
-    if "devices" not in st.session_state:
+    if st.session_state.get("deployment_version") != DEPLOYMENT_VERSION:
+        previous = st.session_state.get("devices", {})
         # 这是设备初始状态快照；实际 VirtualLamp 对象由后续引擎创建。
         st.session_state.devices = {
             device_id: {
@@ -40,9 +41,15 @@ def initialize_session() -> None:
                 "status": config["initial_status"],
                 "mode": config["initial_mode"],
                 "brightness": config["initial_brightness"],
+                **{key: previous.get(device_id, {})[key] for key in ("status", "mode", "brightness", "online")
+                   if key in previous.get(device_id, {})},
             }
             for device_id, config in DEVICES.items()
         }
+        st.session_state.deployment_version = DEPLOYMENT_VERSION
+        st.session_state.database_initialized = False
+        for key in ("maintenance_nodes", "maintenance_results"):
+            st.session_state.pop(key, None)
     st.session_state.devices_initialized = True
     if "gateways" not in st.session_state:
         st.session_state.gateways = deepcopy(GATEWAYS)
@@ -90,23 +97,27 @@ def render_home() -> None:
 
     areas, zones, devices, gateways, interval = st.columns(5)
     areas.metric("校园规划片区", len(CAMPUS_PLANNING_AREAS))
-    zones.metric("代表仿真区域", len(ZONES))
-    devices.metric("照明节点", len(st.session_state.devices))
+    zones.metric("独立照明控制区", len(ZONES))
+    devices.metric("已接入控制节点", len(st.session_state.devices))
     gateways.metric("虚拟网关", len(st.session_state.gateways))
     interval.metric("采样间隔", f"{SIMULATION_STEP_MINUTES} 分钟")
+    fixtures, controllers = st.columns(2)
+    fixtures.metric("规划灯具（估算）", LIGHTING_PLAN_ESTIMATE["fixtures"])
+    controllers.metric("规划控制节点（估算）", LIGHTING_PLAN_ESTIMATE["control_nodes"])
+    st.caption("规划量按教室、公共分区和路灯逐项估算；一个控制节点可以控制多盏灯。详见「区域与设备」数量清单。")
 
     st.subheader("系统准备情况")
     st.success("公共配置检查通过，设备初始状态与本会话故障管理器已准备。")
     st.write("数据库：" + ("已初始化" if st.session_state.database_initialized else "待接入"))
     st.write("仿真引擎：" + ("已接入" if st.session_state.engine_ready else "待接入"))
     st.info(
-        "当前可查看校园地图、全校统一规划，以及全部代表节点的 Lux、Occupancy、"
+        "当前可查看校园地图、全校统一规划，以及全部独立控制节点的 Lux、Occupancy、"
         "智能照明和能耗仿真。所有节点参数均为仿真估算，仍需现场校准。"
     )
 
     st.subheader("项目功能")
     st.markdown(
-        "- **区域与设备**：查看校园地图、八个规划片区和十个代表节点，并比较逐日仿真能耗。\n"
+        f"- **区域与设备**：查看校园地图、八个规划片区和 {len(DEVICES)} 个独立节点，并比较逐日仿真能耗。\n"
         "- **智能照明、LoRa 网络、远程控制**：自动调光、通信质量监测和手动控制。\n"
         "- **能耗分析**：比较传统照明与智能照明的能耗。\n"
         "- **故障告警、运维记录**：故障注入、告警确认、恢复验证与操作追踪。\n"
@@ -114,7 +125,7 @@ def render_home() -> None:
     )
     st.subheader("使用说明")
     st.markdown(
-        "1. 从左侧进入「区域与设备」，查看校园总体规划、代表节点和参数口径。\n"
+        "1. 从左侧进入「区域与设备」，查看校园总体规划、独立节点和参数口径。\n"
         "2. 完整仿真功能开放后，通过功能页面运行实验并查看结果。\n"
         "3. 在故障页面注入和恢复故障，在运维记录中追踪处理过程。"
     )

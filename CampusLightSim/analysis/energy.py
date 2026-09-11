@@ -77,11 +77,12 @@ def simulate_smart_daily_energy(
     simulation_day: date | datetime,
     device_ids: Iterable[str] | None = None,
 ) -> dict:
-    """Run one deterministic 24-hour smart-lighting estimate.
+    """Run one deterministic 24-hour estimate for every selected control circuit.
 
-    Each configured representative device is connected to the same Lux →
+    Each independently configured device is connected to the same Lux →
     Occupancy → automatic brightness chain used by the Streamlit lighting page.
-    Results describe representative circuits, not a measured campus total.
+    By default all deployed circuits are integrated, using their own sensor
+    samples and total circuit power. Results are simulated, not meter readings.
     """
     if isinstance(simulation_day, datetime):
         day = simulation_day.date()
@@ -137,7 +138,7 @@ def compare_simulated_daily_energy(
     simulation_day: date | datetime,
     device_ids: Iterable[str] | None = None,
 ) -> dict:
-    """Compare representative smart simulation with the configured baseline."""
+    """Compare all selected circuits against the same configured baseline."""
     selected_ids = list(DEVICES) if device_ids is None else list(device_ids)
     smart_result = simulate_smart_daily_energy(simulation_day, selected_ids)
     selected_devices = {device_id: DEVICES[device_id] for device_id in selected_ids}

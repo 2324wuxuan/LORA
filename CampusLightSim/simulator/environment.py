@@ -23,6 +23,8 @@ def _resolve_zone_id(zone: str) -> str:
     """Return the canonical zone ID for an ID, name, scene, or short name."""
     if not isinstance(zone, str) or not zone.strip():
         raise ValueError("区域必须是非空字符串")
+    if zone in ZONES:
+        return zone
 
     candidate = zone.strip().casefold()
     for zone_id, zone_config in ZONES.items():

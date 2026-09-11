@@ -36,7 +36,7 @@ class DatabaseTests(unittest.TestCase):
         db.save_device(node.to_dict())
         db.save_device({"device_id": node.device_id, "rssi": -110})
         self.assertEqual(len(db.get_all_devices()), len(DEVICES))
-        self.assertEqual(db.get_device(node.device_id)["power"], 40)
+        self.assertEqual(db.get_device(node.device_id)["power"], 216)
         self.assertEqual(db.get_device(node.device_id)["rssi"], -110)
         self.assertTrue(db.delete_device(node.device_id))
         self.assertFalse(db.delete_device(node.device_id))

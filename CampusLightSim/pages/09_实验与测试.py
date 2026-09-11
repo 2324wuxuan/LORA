@@ -78,3 +78,27 @@ with st.expander("七项测试分别证明什么"):
         "- **T07**：能耗模块正确完成 W、分钟到 kWh 的换算。"
     )
     st.caption("这些结果验证软件逻辑是否符合项目需求，不代表真实硬件已经通过现场测试。")
+
+
+st.divider()
+st.subheader("全部控制节点联合仿真")
+from config import DEVICES, SIMULATION_STEP_MINUTES
+from simulator.engine import run_simulation
+st.caption(f"一次运行全部 {len(DEVICES)} 个节点，包含环境、自动控制、功率、三网关链路和故障检测。24小时共 {len(DEVICES)*288:,} 条采样；使用独立实验状态，不覆盖当前手动控制或业务数据库。")
+duration = st.selectbox("仿真时长", ["5分钟", "1小时", "24小时"])
+if st.button("运行全部节点联合仿真"):
+    hours = {"5分钟": 5/60, "1小时": 1, "24小时": 24}[duration]
+    progress = st.progress(0)
+    started = perf_counter()
+    records = run_simulation(datetime.combine(test_date, datetime.min.time()), hours=hours,
+                             persist=False, progress_callback=lambda n, total: progress.progress(n/total))
+    st.session_state.full_simulation_summary = {
+        "节点数": len({r["device_id"] for r in records}), "采样数": len(records),
+        "成功收包数": sum(r["packet_success"] is True for r in records),
+        "耗时秒": round(perf_counter()-started, 2)}
+    st.session_state.full_simulation_tail = records[-200:]
+    del records
+if "full_simulation_summary" in st.session_state:
+    st.write(st.session_state.full_simulation_summary)
+    st.caption("下表显示最后200条记录；以上统计覆盖全部节点与采样。")
+    st.dataframe(st.session_state.full_simulation_tail, width="stretch", hide_index=True)

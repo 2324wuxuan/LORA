@@ -26,6 +26,7 @@ from analysis.energy import (
     compare_simulated_daily_energy,
 )
 from config import DEVICES, ENERGY, ZONES
+from analysis.energy_cache import daily_energy_for_ui
 
 
 # ---------------------------------------------------------------------------
@@ -120,18 +121,18 @@ def _traditional_vs_smart_bar_svg(
 # 页面主体
 # ---------------------------------------------------------------------------
 st.title("🔋 能耗分析")
-st.caption("比较全校代表节点在传统照明策略与智能照明策略下的当日能耗与节能效果")
+st.caption("比较全部独立控制节点在传统照明策略与智能照明策略下的当日能耗与节能效果")
 st.info(
     "传统能耗按 `config.ENERGY` 固定策略计算（全部灯具 "
     f"{ENERGY['traditional_brightness']}% 亮度、{ENERGY['traditional_start_hour']:02d}:00–"
     f"{ENERGY['traditional_end_hour']:02d}:00 常亮）；智能能耗由 environment → lighting → "
-    "device 逐点仿真后对实际功率积分得到。结果是 10 个代表节点的仿真估算，"
+    f"device 逐点仿真后对实际功率积分得到。结果覆盖全部 {len(DEVICES)} 个独立照明控制节点，"
     "不是全校实测总电量。"
 )
 
 selected_date = st.date_input("选择日期", value=datetime.now().date(), key="energy_date")
 
-result = compare_simulated_daily_energy(selected_date)
+result = daily_energy_for_ui(selected_date)
 traditional_total = result["traditional_energy_kwh"]
 smart_total = result["smart_energy_kwh"]
 saved_total = result["saved_energy_kwh"]
@@ -182,18 +183,18 @@ for zone_id, zone in ZONES.items():
             "节能率": zone_rate,
         }
     )
-st.markdown(_markdown_table(zone_rows))
-st.caption("每个区域对应一个代表照明节点；节能率按该区域自身的传统/智能能耗独立计算。")
+st.dataframe(zone_rows, width="stretch", hide_index=True)
+st.caption("每个控制区对应一个独立节点；节能率按该控制区自身的传统/智能能耗独立计算。")
 
 
 with st.expander("参数口径说明"):
     st.markdown(
         "- 传统策略：`config.ENERGY` 固定亮度与固定时段，公式为 "
         f"`{ENERGY['formula']}`（见 `analysis/energy.py`）。\n"
-        "- 智能策略：`compare_simulated_daily_energy` 将每个代表节点接入 "
+        "- 智能策略：`compare_simulated_daily_energy` 将每个独立节点接入 "
         "`environment → lighting → device` 全链路，对每个采样周期的实际功率积分。\n"
         "- 节能率 = (传统能耗 − 智能能耗) / 传统能耗 × 100%，与 `interfaces.md` 公式一致。\n"
-        "- 当前仅 10 个代表节点参与逐点仿真，69 个建议部署节点未参与，"
+        f"- 当前全部 {len(DEVICES)} 个控制节点逐一参与仿真，功率按每个回路的灯数与单灯功率计算，"
         "结果不能直接外推为全校真实能耗。\n"
         "- 本页只调用 `analysis/energy.py` 现成接口进行展示，不重新实现能耗或节能率计算。"
     )

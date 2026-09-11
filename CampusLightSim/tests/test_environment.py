@@ -35,8 +35,8 @@ class EnvironmentSimulationTests(unittest.TestCase):
 
     def test_campus_wide_planning_and_map_are_configured(self):
         self.assertEqual(len(CAMPUS_PLANNING_AREAS), 8)
-        self.assertEqual(len(ZONES), 10)
-        self.assertEqual(len(DEVICES), 10)
+        self.assertEqual(len(ZONES), 1690)
+        self.assertEqual(len(DEVICES), 1690)
         self.assertTrue((BASE_DIR / CAMPUS_MAP["asset_path"]).is_file())
         planned_landmarks = {
             landmark
@@ -57,8 +57,8 @@ class EnvironmentSimulationTests(unittest.TestCase):
             if area_id == "PA01":
                 continue
             self.assertEqual(area["parameter_source"], SIMULATION_ESTIMATE_LABEL)
-            self.assertEqual(area["simulation_nodes"], 1)
-            self.assertEqual(len(area["linked_zone_ids"]), 1)
+            self.assertEqual(area["simulation_nodes"], area["recommended_nodes"])
+            self.assertEqual(len(area["linked_zone_ids"]), area["recommended_nodes"])
             zone_id = area["linked_zone_ids"][0]
             self.assertEqual(ZONES[zone_id]["parameter_source"], SIMULATION_ESTIMATE_LABEL)
             device = next(item for item in DEVICES.values() if item["zone_id"] == zone_id)
@@ -127,7 +127,7 @@ class EnergyScenarioTests(unittest.TestCase):
         self.assertAlmostEqual(calculate_energy(60, 5), 0.005)
 
     def test_traditional_scenario_and_saving_rate(self):
-        self.assertAlmostEqual(calculate_traditional_daily_energy(), 17.07)
+        self.assertAlmostEqual(calculate_traditional_daily_energy(), 4404.96)
         self.assertEqual(calculate_saving_rate(4, 3), 25.0)
 
     def test_all_zones_participate_in_smart_energy_simulation(self):
